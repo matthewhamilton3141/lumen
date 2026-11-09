@@ -1,0 +1,129 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>vid-dith</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/src/style.css">
+</head>
+<body>
+<main class="app">
+  <section class="stage" id="stage">
+    <div class="view" id="view">
+      <canvas id="out" hidden></canvas>
+      <video id="vid" muted loop playsinline preload="auto" hidden></video>
+      <label class="drop" id="drop">
+        <input type="file" id="file" accept="video/*,.mov,.mp4,.webm,.mkv" hidden>
+        <span class="drop-main">Drop a video here</span>
+        <span class="drop-sub">or click to choose a file</span>
+      </label>
+    </div>
+    <div class="transport" id="transport" hidden>
+      <button class="icon" id="play" aria-label="Play">
+        <svg viewBox="0 0 16 16" id="play-icon"><path d="M4 2.5v11l9-5.5z"/></svg>
+      </button>
+      <input type="range" id="seek" min="0" max="1000" value="0" step="1" aria-label="Seek">
+      <span class="time" id="time">0:00 / 0:00</span>
+      <button class="text" id="orig" aria-pressed="false">Original</button>
+      <button class="text" id="swap-file">Change video</button>
+    </div>
+  </section>
+
+  <aside class="panel">
+    <div class="panel-top">
+      <span class="meta" id="meta">No video</span>
+      <button class="text" id="theme" aria-label="Toggle theme">Dark</button>
+    </div>
+
+    <fieldset>
+      <legend>Dither</legend>
+      <label class="row">Algorithm
+        <select id="algorithm"></select>
+      </label>
+      <label class="row slider">Levels <output data-for="levels"></output>
+        <input type="range" id="levels" min="2" max="8" step="1">
+      </label>
+      <label class="row slider" data-show="diffusion">Diffusion <output data-for="strength"></output>
+        <input type="range" id="strength" min="0" max="1" step="0.01">
+      </label>
+      <label class="check" data-show="diffusion"><input type="checkbox" id="serpentine"> Serpentine scan</label>
+    </fieldset>
+
+    <fieldset>
+      <legend>Tone</legend>
+      <label class="row slider">Brightness <output data-for="brightness"></output>
+        <input type="range" id="brightness" min="-100" max="100" step="1">
+      </label>
+      <label class="row slider">Contrast <output data-for="contrast"></output>
+        <input type="range" id="contrast" min="-100" max="100" step="1">
+      </label>
+      <label class="row slider">Gamma <output data-for="gamma"></output>
+        <input type="range" id="gamma" min="0.2" max="3" step="0.01">
+      </label>
+      <label class="row slider">Threshold <output data-for="threshold"></output>
+        <input type="range" id="threshold" min="0" max="255" step="1">
+      </label>
+      <label class="check"><input type="checkbox" id="invert"> Invert</label>
+    </fieldset>
+
+    <fieldset>
+      <legend>Colour</legend>
+      <div class="colors">
+        <label class="swatch">Ink <input type="color" id="ink"></label>
+        <label class="swatch">Paper <input type="color" id="paper"></label>
+        <button class="text" id="swap-colors">Swap</button>
+        <button class="text" id="reset-colors">Reset</button>
+      </div>
+    </fieldset>
+
+    <fieldset>
+      <legend>Size</legend>
+      <label class="row slider">Dots across <output data-for="width"></output>
+        <input type="range" id="width" min="32" max="1280" step="2">
+      </label>
+      <label class="row slider">Export scale <output data-for="scale"></output>
+        <input type="range" id="scale" min="1" max="12" step="1">
+      </label>
+      <p class="note" id="size-note"></p>
+    </fieldset>
+
+    <fieldset>
+      <legend>Time</legend>
+      <label class="row slider">Frame rate <output data-for="fps"></output>
+        <input type="range" id="fps" min="1" max="60" step="1">
+      </label>
+      <div class="trim">
+        <label>Start <input type="number" id="t0" min="0" step="0.1" value="0"></label>
+        <button class="text" id="set-t0" title="Set start to playhead">Set</button>
+        <label>End <input type="number" id="t1" min="0" step="0.1" value="0"></label>
+        <button class="text" id="set-t1" title="Set end to playhead">Set</button>
+      </div>
+    </fieldset>
+
+    <fieldset>
+      <legend>Export</legend>
+      <div class="seg" role="radiogroup" id="format">
+        <button role="radio" data-v="mp4">MP4</button>
+        <button role="radio" data-v="mov">MOV</button>
+        <button role="radio" data-v="gif">GIF</button>
+        <button role="radio" data-v="html">HTML</button>
+      </div>
+      <label class="check" data-fmt="mp4 mov"><input type="checkbox" id="audio"> Keep audio</label>
+      <label class="check" data-fmt="html gif"><input type="checkbox" id="loop"> Loop</label>
+      <p class="note" id="fmt-note"></p>
+      <button class="primary" id="export" disabled>Export</button>
+      <div class="progress" id="progress" hidden>
+        <div class="bar"><div id="bar"></div></div>
+        <span id="pct">0%</span>
+        <button class="text" id="cancel">Cancel</button>
+      </div>
+      <p class="note" id="status" role="status"></p>
+    </fieldset>
+  </aside>
+</main>
+<script type="module" src="/src/main.js"></script>
+</body>
+</html>
