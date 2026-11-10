@@ -20,7 +20,7 @@ Nothing is uploaded: decoding, dithering and encoding all run locally (WebCodecs
 - **Size:** frame (original, 16:9, 9:16, 1:1, 4:5, 4:3, 21:9) with crop to fill or fit with black bars. "Dots on long side" is the dither resolution, so portrait and landscape behave the same. Export scale multiplies it with nearest-neighbour, so dots stay square. Rotation metadata (phone videos) is applied and baked into exports.
 - **Time:** output frame rate, trim start/end (Set takes the playhead).
 
-Keys: space plays/pauses, `o` toggles the undithered source.
+Keys: space plays/pauses, `o` toggles the undithered source, `m` mutes.
 
 ## Exports
 

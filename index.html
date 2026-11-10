@@ -14,7 +14,7 @@
   <section class="stage" id="stage">
     <div class="view" id="view">
       <canvas id="out" hidden></canvas>
-      <video id="vid" muted loop playsinline preload="auto" hidden></video>
+      <video id="vid" loop playsinline preload="auto" hidden></video>
       <label class="drop" id="drop">
         <input type="file" id="file" accept="video/*,.mov,.mp4,.webm,.mkv" hidden>
         <span class="drop-main">Drop a video here</span>
@@ -27,6 +27,9 @@
       </button>
       <input type="range" id="seek" min="0" max="1000" value="0" step="1" aria-label="Seek">
       <span class="time" id="time">0:00 / 0:00</span>
+      <button class="icon" id="mute" aria-label="Mute" aria-pressed="false">
+        <svg viewBox="0 0 16 16" id="mute-icon"></svg>
+      </button>
       <button class="text" id="orig" aria-pressed="false">Source</button>
       <button class="text" id="swap-file">Change video</button>
     </div>

@@ -251,6 +251,31 @@ const PLAY = '<path d="M4 2.5v11l9-5.5z"/>';
 const PAUSE = '<path d="M3.5 2.5h3v11h-3zM9.5 2.5h3v11h-3z"/>';
 vid.onplay = () => { $('play-icon').innerHTML = PAUSE; $('play').ariaLabel = 'Pause'; schedule(); };
 vid.onpause = () => { $('play-icon').innerHTML = PLAY; $('play').ariaLabel = 'Play'; };
+
+// Sound: on by default; remembered. If the browser blocks unmuted autoplay, fall back to muted.
+const SPEAKER = '<path d="M2 6h3l4-3.5v11L5 10H2z"/>';
+const WAVES = '<path d="M11 5.2a4 4 0 0 1 0 5.6M12.8 3.4a6.5 6.5 0 0 1 0 9.2" fill="none" stroke="currentColor" stroke-width="1.3"/>';
+const CROSS = '<path d="M11 6l4 4M15 6l-4 4" fill="none" stroke="currentColor" stroke-width="1.3"/>';
+let wantSound = true;
+try { wantSound = localStorage.getItem('vid-dith:muted') !== '1'; } catch {}
+function showMute() {
+  $('mute-icon').innerHTML = SPEAKER + (vid.muted ? CROSS : WAVES);
+  $('mute').ariaLabel = vid.muted ? 'Unmute' : 'Mute';
+  $('mute').setAttribute('aria-pressed', vid.muted);
+  $('mute').hidden = info ? !info.hasAudio : false;
+}
+vid.muted = !wantSound;
+vid.onvolumechange = showMute;
+$('mute').onclick = () => {
+  vid.muted = !vid.muted;
+  try { localStorage.setItem('vid-dith:muted', vid.muted ? '1' : '0'); } catch {}
+};
+async function startPlayback() {
+  try { await vid.play(); } catch {
+    if (!vid.muted) { vid.muted = true; status('Sound was blocked by the browser. Press the speaker to turn it on.'); vid.play().catch(() => {}); }
+  }
+}
+showMute();
 vid.onseeked = () => { render(); updateTime(); };
 $('play').onclick = () => (vid.paused ? vid.play() : vid.pause());
 
@@ -268,6 +293,7 @@ addEventListener('keydown', (e) => {
   if (!info || e.target.closest('input, select, textarea')) return;
   if (e.code === 'Space') { e.preventDefault(); vid.paused ? vid.play() : vid.pause(); }
   if (e.key === 'o') $('orig').click();
+  if (e.key === 'm') $('mute').click();
 });
 
 // Trim
@@ -301,7 +327,8 @@ async function load(f) {
   $('meta').textContent = `${file.name} · ${info.width}×${info.height}${info.rotation ? ` (rotated ${info.rotation}°)` : ''} · ${info.fps} fps · ${t(info.duration)}`;
   $('meta').title = file.name;
   resize(); syncUI();
-  vid.onloadeddata = () => { render(); updateTime(); vid.play().catch(() => {}); };
+  showMute();
+  vid.onloadeddata = () => { render(); updateTime(); startPlayback(); };
 }
 
 $('file').onchange = (e) => e.target.files[0] && load(e.target.files[0]);
