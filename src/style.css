@@ -110,10 +110,17 @@ input[type="checkbox"]:checked::after { transform: scale(1); }
 }
 .primary:disabled { opacity: 0.3; cursor: default; }
 .seg { display: grid; grid-template-columns: repeat(4, 1fr); border: 1px solid var(--fg); margin-bottom: 12px; }
+.seg.two { grid-template-columns: 1fr 1fr; }
+.seg.three { grid-template-columns: repeat(3, 1fr); }
 .seg button { background: none; border: 0; padding: 6px 0; cursor: pointer; border-left: 1px solid var(--fg); }
 .seg button:first-child { border-left: 0; }
 .seg button[aria-checked="true"] { background: var(--fg); color: var(--bg); }
 
+.swatches { display: grid; grid-template-columns: repeat(8, 1fr); gap: 6px; margin-bottom: 10px; }
+.swatches input[type="color"] { width: 100%; height: auto; aspect-ratio: 1; }
+.palette-actions { display: flex; gap: 14px; margin-bottom: 14px; }
+.secondary { width: 100%; padding: 7px; margin-bottom: 14px; border: 1px solid var(--fg); background: none; cursor: pointer; border-radius: 0; }
+.secondary:disabled { opacity: 0.3; cursor: default; }
 .colors { display: flex; align-items: center; gap: 14px; margin-bottom: 14px; }
 .swatch { display: flex; align-items: center; gap: 6px; cursor: pointer; }
 input[type="color"] { -webkit-appearance: none; appearance: none; width: 18px; height: 18px; padding: 0; border: 1px solid var(--fg); background: none; cursor: pointer; }

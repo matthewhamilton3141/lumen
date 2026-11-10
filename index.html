@@ -27,7 +27,7 @@
       </button>
       <input type="range" id="seek" min="0" max="1000" value="0" step="1" aria-label="Seek">
       <span class="time" id="time">0:00 / 0:00</span>
-      <button class="text" id="orig" aria-pressed="false">Original</button>
+      <button class="text" id="orig" aria-pressed="false">Source</button>
       <button class="text" id="swap-file">Change video</button>
     </div>
   </section>
@@ -43,10 +43,10 @@
       <label class="row">Algorithm
         <select id="algorithm"></select>
       </label>
-      <label class="row slider">Levels <output data-for="levels"></output>
+      <label class="row slider" data-mode="mono">Levels <output data-for="levels"></output>
         <input type="range" id="levels" min="2" max="8" step="1">
       </label>
-      <label class="row slider" data-show="diffusion">Diffusion <output data-for="strength"></output>
+      <label class="row slider" data-show="amount">Amount <output data-for="strength"></output>
         <input type="range" id="strength" min="0" max="1" step="0.01">
       </label>
       <label class="check" data-show="diffusion"><input type="checkbox" id="serpentine"> Serpentine scan</label>
@@ -63,6 +63,9 @@
       <label class="row slider">Gamma <output data-for="gamma"></output>
         <input type="range" id="gamma" min="0.2" max="3" step="0.01">
       </label>
+      <label class="row slider" data-mode="color original">Saturation <output data-for="saturation"></output>
+        <input type="range" id="saturation" min="-100" max="100" step="1">
+      </label>
       <label class="row slider">Threshold <output data-for="threshold"></output>
         <input type="range" id="threshold" min="0" max="255" step="1">
       </label>
@@ -71,17 +74,52 @@
 
     <fieldset>
       <legend>Colour</legend>
-      <div class="colors">
+      <div class="seg three" role="radiogroup" id="mode">
+        <button role="radio" data-v="mono">Mono</button>
+        <button role="radio" data-v="color">Palette</button>
+        <button role="radio" data-v="original">Original</button>
+      </div>
+      <div data-mode="original">
+        <label class="row slider">Levels per channel <output data-for="chLevels"></output>
+          <input type="range" id="chLevels" min="2" max="6" step="1">
+        </label>
+        <p class="note">Each of red, green and blue is dithered on its own, so the video keeps its own colours.</p>
+      </div>
+      <div class="colors" data-mode="mono">
         <label class="swatch">Ink <input type="color" id="ink"></label>
         <label class="swatch">Paper <input type="color" id="paper"></label>
         <button class="text" id="swap-colors">Swap</button>
         <button class="text" id="reset-colors">Reset</button>
       </div>
+      <div data-mode="color">
+        <label class="row">Palette
+          <select id="preset"></select>
+        </label>
+        <div class="swatches" id="swatches"></div>
+        <div class="palette-actions">
+          <button class="text" id="add-color">Add</button>
+          <button class="text" id="remove-color">Remove</button>
+          <button class="text" id="sort-colors">Sort</button>
+        </div>
+        <label class="row slider">Colours from video <output data-for="count"></output>
+          <input type="range" id="count" min="2" max="16" step="1">
+        </label>
+        <button class="secondary" id="from-video" disabled>Pick colours from video</button>
+      </div>
     </fieldset>
 
     <fieldset>
       <legend>Size</legend>
-      <label class="row slider">Dots across <output data-for="width"></output>
+      <label class="row">Frame
+        <select id="aspect"></select>
+      </label>
+      <div id="fit-row">
+        <div class="seg two" role="radiogroup" id="fit">
+          <button role="radio" data-v="crop">Crop to fill</button>
+          <button role="radio" data-v="contain">Fit with bars</button>
+        </div>
+      </div>
+      <label class="row slider">Dots on long side <output data-for="width"></output>
         <input type="range" id="width" min="32" max="1280" step="2">
       </label>
       <label class="row slider">Export scale <output data-for="scale"></output>

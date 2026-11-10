@@ -74,3 +74,64 @@ test('xor delta stream decodes', async () => {
     assert.deepEqual(unpackFrame(cur, p.bits, 100), f);
   });
 });
+
+import { ditherColor, toRGB, PRESETS, hexToRgb, nearestLut } from '../src/dither.js';
+
+const solid = (r, g, b) => {
+  const a = new Uint8ClampedArray(W * H * 4);
+  for (let i = 0; i < W * H; i++) a.set([r, g, b, 255], i * 4);
+  return toRGB(a, W, H, {});
+};
+const rgb8 = PRESETS.rgb.colors.map(hexToRgb);
+
+test('colour: palette colours map to themselves', () => {
+  const lut = nearestLut(rgb8);
+  for (const alg of Object.keys(ALGORITHMS)) {
+    rgb8.forEach((c, k) => {
+      const idx = ditherColor(solid(...c), W, H, { algorithm: alg }, rgb8);
+      assert.ok(idx.every((v) => v === k), `${alg} colour ${k}`);
+    });
+  }
+  assert.equal(lut.length, 64 ** 3);
+});
+
+test('colour: dithering mixes towards the source colour', () => {
+  // Orange from an 8-colour RGB palette must be a mix of red and yellow.
+  for (const alg of ['floyd', 'bayer8', 'bluenoise']) {
+    const idx = ditherColor(solid(255, 128, 0), W, H, { algorithm: alg }, rgb8);
+    const avg = [0, 0, 0];
+    idx.forEach((k) => rgb8[k].forEach((v, j) => (avg[j] += v / idx.length)));
+    assert.ok(Math.abs(avg[0] - 255) < 15 && Math.abs(avg[1] - 128) < 30 && avg[2] < 15, `${alg}: ${avg.map(Math.round)}`);
+  }
+});
+
+test('colour: saturation 0 to -100 makes grey', () => {
+  const a = new Uint8ClampedArray([255, 0, 0, 255]);
+  const [r, g, b] = toRGB(a, 1, 1, { saturation: -100 });
+  assert.ok(Math.abs(r - g) < 1e-3 && Math.abs(g - b) < 1e-3);
+});
+
+import { framing } from '../src/frame.js';
+
+test('framing: original aspect keeps shape, long side is the dot count', () => {
+  assert.deepEqual(framing({ width: 1920, height: 1080 }, { long: 320 }), { w: 320, h: 180, crop: null, fit: 'fill' });
+  // Portrait phone video: long side is the height.
+  assert.deepEqual(framing({ width: 1080, height: 1920 }, { long: 320 }), { w: 180, h: 320, crop: null, fit: 'fill' });
+  // Never upsample past the source.
+  assert.equal(framing({ width: 200, height: 100 }, { long: 640 }).w, 200);
+});
+
+test('framing: crop is centred and matches the target aspect', () => {
+  const f = framing({ width: 1920, height: 1080 }, { aspect: '9:16', fit: 'crop', long: 320 });
+  assert.equal(f.h, 320); assert.equal(f.w, 180);
+  assert.equal(f.crop.height, 1080);
+  assert.ok(Math.abs(f.crop.width / f.crop.height - 9 / 16) < 0.01);
+  assert.ok(Math.abs(f.crop.left - (1920 - f.crop.width) / 2) <= 1);
+  const g = framing({ width: 1080, height: 1920 }, { aspect: '1:1', fit: 'crop', long: 300 });
+  assert.deepEqual([g.w, g.h, g.crop.width, g.crop.height, g.crop.top], [300, 300, 1080, 1080, 420]);
+});
+
+test('framing: fit letterboxes', () => {
+  const f = framing({ width: 1920, height: 1080 }, { aspect: '1:1', fit: 'contain', long: 256 });
+  assert.deepEqual(f, { w: 256, h: 256, crop: null, fit: 'contain' });
+});

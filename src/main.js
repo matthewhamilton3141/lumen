@@ -1,13 +1,14 @@
-import { ALGORITHMS, DEFAULTS, hexToRgb } from './dither.js';
-import { probe, makeProcessor, exportVideo, exportGif, exportHtml } from './export.js';
+import { ALGORITHMS, DEFAULTS, DIFFUSION, PRESETS, hexToRgb, rgbToHex } from './dither.js';
+import { probe, makeProcessor, exportVideo, exportGif, exportHtml, paletteFromVideo, framing, ASPECTS } from './export.js';
 
 const $ = (id) => document.getElementById(id);
-const DIFFUSION = new Set(['floyd', 'atkinson', 'jarvis', 'stucki', 'sierra']);
 const STORE = 'vid-dith:settings';
 
 const BASE = {
   ...DEFAULTS,
   ink: '#000000', paper: '#ffffff',
+  mode: 'mono', preset: 'cga', colors: [...PRESETS.cga.colors], count: 8, chLevels: 2,
+  aspect: 'original', fit: 'crop',
   width: 320, scale: 4, fps: 24,
   format: 'mp4', audio: true, loop: true,
 };
@@ -36,16 +37,23 @@ themeBtn.onclick = () => {
 // Controls
 const sel = $('algorithm');
 for (const [k, v] of Object.entries(ALGORITHMS)) sel.add(new Option(v, k));
+const aspectSel = $('aspect');
+for (const [k, v] of Object.entries(ASPECTS)) aspectSel.add(new Option(v, k));
+aspectSel.onchange = () => { S.aspect = aspectSel.value; changed('frame'); };
+const presetSel = $('preset');
+for (const [k, v] of Object.entries(PRESETS)) presetSel.add(new Option(v.name, k));
+presetSel.add(new Option('Custom', 'custom'));
 
 const fmt = {
   levels: (v) => (v == 2 ? '1-bit' : `${v} levels`),
+  chLevels: (v) => `${v} → ${v ** 3} colours`,
   strength: (v) => `${Math.round(v * 100)}%`,
   gamma: (v) => (+v).toFixed(2),
   scale: (v) => `${v}×`,
   fps: (v) => `${v} fps`,
   width: (v) => v,
 };
-const ranges = ['levels', 'strength', 'brightness', 'contrast', 'gamma', 'threshold', 'width', 'scale', 'fps'];
+const ranges = ['levels', 'strength', 'brightness', 'contrast', 'saturation', 'gamma', 'threshold', 'width', 'scale', 'fps', 'count', 'chLevels'];
 const checks = ['serpentine', 'invert', 'audio', 'loop'];
 
 function fill(el) {
@@ -61,7 +69,17 @@ function syncUI() {
   for (const k of checks) $(k).checked = !!S[k];
   $('ink').value = S.ink; $('paper').value = S.paper;
   for (const b of $('format').children) b.setAttribute('aria-checked', b.dataset.v === S.format);
+  for (const b of $('mode').children) b.setAttribute('aria-checked', b.dataset.v === S.mode);
+  for (const el of document.querySelectorAll('[data-mode]')) el.hidden = !el.dataset.mode.split(' ').includes(S.mode);
+  aspectSel.value = S.aspect;
+  for (const b of $('fit').children) b.setAttribute('aria-checked', b.dataset.v === S.fit);
+  $('fit-row').hidden = S.aspect === 'original';
   for (const el of document.querySelectorAll('[data-show="diffusion"]')) el.hidden = !DIFFUSION.has(S.algorithm);
+  for (const el of document.querySelectorAll('[data-show="amount"]')) el.hidden = S.algorithm === 'threshold';
+  presetSel.value = S.preset in PRESETS ? S.preset : 'custom';
+  renderSwatches();
+  $('add-color').disabled = S.colors.length >= 16;
+  $('remove-color').disabled = S.colors.length <= 2;
   for (const el of document.querySelectorAll('[data-fmt]')) el.hidden = !el.dataset.fmt.split(' ').includes(S.format);
   updateNotes();
 }
@@ -74,12 +92,65 @@ $('paper').oninput = (e) => { S.paper = e.target.value; changed(); };
 $('swap-colors').onclick = () => { [S.ink, S.paper] = [S.paper, S.ink]; changed(); };
 $('reset-colors').onclick = () => { S.ink = BASE.ink; S.paper = BASE.paper; changed(); };
 for (const b of $('format').children) b.onclick = () => { S.format = b.dataset.v; changed(); };
+for (const b of $('mode').children) b.onclick = () => { S.mode = b.dataset.v; changed(); };
+for (const b of $('fit').children) b.onclick = () => { S.fit = b.dataset.v; changed('frame'); };
+
+// Palette swatches: update in place so an open colour picker isn't torn down.
+const swatches = $('swatches');
+function renderSwatches() {
+  while (swatches.children.length > S.colors.length) swatches.lastChild.remove();
+  while (swatches.children.length < S.colors.length) {
+    const i = swatches.children.length;
+    const el = document.createElement('input');
+    el.type = 'color';
+    el.oninput = () => { S.colors[i] = el.value; S.preset = 'custom'; changed(); };
+    swatches.append(el);
+  }
+  S.colors.forEach((c, i) => {
+    const el = swatches.children[i];
+    if (el.value !== c) el.value = c;
+    el.title = el.ariaLabel = `Colour ${i + 1}: ${c}`;
+  });
+}
+presetSel.onchange = () => {
+  if (presetSel.value in PRESETS) { S.preset = presetSel.value; S.colors = [...PRESETS[S.preset].colors]; }
+  changed();
+};
+const luma = (h) => { const [r, g, b] = hexToRgb(h); return 0.2126 * r + 0.7152 * g + 0.0722 * b; };
+$('add-color').onclick = () => {
+  if (S.colors.length >= 16) return;
+  // Midpoint between the two most distant neighbours in luma is a reasonable new slot.
+  const sorted = [...S.colors].sort((a, b) => luma(a) - luma(b));
+  let gap = 0, at = 0;
+  for (let i = 1; i < sorted.length; i++) { const d = luma(sorted[i]) - luma(sorted[i - 1]); if (d > gap) { gap = d; at = i; } }
+  const [a, b] = [hexToRgb(sorted[at - 1] || sorted[0]), hexToRgb(sorted[at])];
+  S.colors.push(rgbToHex(a.map((v, j) => (v + b[j]) / 2)));
+  S.preset = 'custom'; changed();
+};
+$('remove-color').onclick = () => { if (S.colors.length > 2) { S.colors.pop(); S.preset = 'custom'; changed(); } };
+$('sort-colors').onclick = () => { S.colors.sort((a, b) => luma(a) - luma(b)); changed(); };
+$('from-video').onclick = async () => {
+  if (!file) return;
+  const btn = $('from-video');
+  btn.disabled = true; btn.textContent = 'Picking colours…';
+  try {
+    const st = settings();
+    const pal = await paletteFromVideo(file, info, st, S.count, trim(), frameOpts());
+    S.colors = pal.map(rgbToHex); S.preset = 'custom'; S.mode = 'color';
+    changed();
+  } catch (err) {
+    console.error(err); status(`Couldn't pick colours: ${err.message}`);
+  } finally {
+    btn.disabled = false; btn.textContent = 'Pick colours from video';
+  }
+};
 
 function changed(key) {
   save();
   if (key !== undefined && ranges.includes(key)) updateNotes();
   else syncUI();
-  if (key === 'width') resize();
+  if (key === 'frame') updateNotes();
+  if (key === 'width' || key === 'frame') resize();
   if (!vid.paused) return;
   render();
 }
@@ -88,18 +159,16 @@ function changed(key) {
 const vid = $('vid'), out = $('out'), octx = out.getContext('2d');
 const work = document.createElement('canvas');
 const wctx = work.getContext('2d', { willReadFrequently: true });
-let file = null, info = null, url = null, dims = { w: 0, h: 0 };
+let file = null, info = null, url = null, dims = { w: 0, h: 0, crop: null, fit: 'fill' };
 let showOrig = false;
 
-function even(n) { return Math.max(2, Math.round(n / 2) * 2); }
-
+const frameOpts = () => ({ aspect: S.aspect, fit: S.fit, long: S.width });
 function resize() {
   if (!info) return;
-  const w = even(Math.min(S.width, info.width));
-  const h = even((w * info.height) / info.width);
-  dims = { w, h };
-  work.width = out.width = w;
-  work.height = out.height = h;
+  dims = framing(info, frameOpts());
+  work.width = out.width = dims.w;
+  work.height = out.height = dims.h;
+  cache.key = '';
   updateNotes();
 }
 
@@ -121,10 +190,10 @@ function updateNotes() {
   };
   $('fmt-note').textContent = notes[S.format];
 }
-const palCount = () => S.levels;
+const palCount = () => (S.mode === 'color' ? S.colors.length : S.mode === 'original' ? S.chLevels ** 3 : S.levels);
 
 function settings() {
-  return { ...S, ink: hexToRgb(S.ink), paper: hexToRgb(S.paper) };
+  return { ...S, ink: hexToRgb(S.ink), paper: hexToRgb(S.paper), colors: S.colors.map(hexToRgb) };
 }
 
 // Processor is rebuilt only when settings or size change.
@@ -138,9 +207,21 @@ function processor() {
 
 function render() {
   if (!info || !dims.w || vid.readyState < 2) return;
-  const { w, h } = dims;
+  const { w, h, crop, fit } = dims;
   wctx.imageSmoothingQuality = 'high';
-  wctx.drawImage(vid, 0, 0, w, h);
+  // The <video> may report a slightly different intrinsic size than the demuxer; map crop through it.
+  const vw = vid.videoWidth || info.width, vh = vid.videoHeight || info.height;
+  if (crop) {
+    const kx = vw / info.width, ky = vh / info.height;
+    wctx.drawImage(vid, crop.left * kx, crop.top * ky, crop.width * kx, crop.height * ky, 0, 0, w, h);
+  } else if (fit === 'contain') {
+    const k = Math.min(w / vw, h / vh);
+    const dw = vw * k, dh = vh * k;
+    wctx.fillStyle = '#000'; wctx.fillRect(0, 0, w, h);
+    wctx.drawImage(vid, (w - dw) / 2, (h - dh) / 2, dw, dh);
+  } else {
+    wctx.drawImage(vid, 0, 0, w, h);
+  }
   if (showOrig) { octx.drawImage(work, 0, 0); return; }
   const img = wctx.getImageData(0, 0, w, h);
   const p = processor();
@@ -214,10 +295,10 @@ async function load(f) {
   url = URL.createObjectURL(file);
   vid.src = url;
   $('drop').hidden = true; out.hidden = false; $('transport').hidden = false;
-  $('export').disabled = false;
+  $('export').disabled = false; $('from-video').disabled = false;
   t0.value = 0; t1.value = info.duration.toFixed(2); t1.max = t0.max = info.duration.toFixed(2);
   S.fps = Math.min(S.fps, Math.round(info.fps) || 60);
-  $('meta').textContent = `${file.name} · ${info.width}×${info.height} · ${info.fps} fps · ${t(info.duration)}`;
+  $('meta').textContent = `${file.name} · ${info.width}×${info.height}${info.rotation ? ` (rotated ${info.rotation}°)` : ''} · ${info.fps} fps · ${t(info.duration)}`;
   $('meta').title = file.name;
   resize(); syncUI();
   vid.onloadeddata = () => { render(); updateTime(); vid.play().catch(() => {}); };
@@ -250,7 +331,7 @@ $('export').onclick = async () => {
   prog(0);
   const t0ms = performance.now();
   const opts = {
-    file, settings: settings(), w: dims.w, h: dims.h, scale: S.scale, fps: S.fps, trim: tr,
+    file, settings: settings(), frame: dims, scale: S.scale, fps: S.fps, trim: tr,
     onProgress: prog, signal: ctl.signal,
   };
   try {
@@ -272,7 +353,7 @@ $('export').onclick = async () => {
     else { console.error(err); status(`Export failed: ${err.message}`); }
   } finally {
     job = null;
-    $('export').disabled = false; $('progress').hidden = true;
+    $('export').disabled = false; $('from-video').disabled = false; $('progress').hidden = true;
   }
 };
 $('cancel').onclick = () => { job?.ctl.abort(); job?.conversion?.cancel(); };
@@ -301,5 +382,5 @@ syncUI();
 
 // Headless test hook: ?test lets a script drive load/export without the UI.
 if (new URLSearchParams(location.search).has('test')) {
-  window.__vd = { load, S, exportVideo, exportGif, exportHtml, probe, settings, dims: () => dims };
+  window.__vd = { load, S, changed, framing, paletteFromVideo, trim, exportVideo, exportGif, exportHtml, probe, settings, dims: () => dims };
 }
