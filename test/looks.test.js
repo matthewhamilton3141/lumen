@@ -1,22 +1,23 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { LOOKS, makeStamps, resolveBg, lookTables, stampFrame, makeLook } from '../src/looks.js';
+import { LOOKS, makeStamps, resolveBg, lookTables, stampFrame, makeLook, maskSpans, spreadFrame, diamondRadius, lookLevels } from '../src/looks.js';
 import { LOOK_PRESETS } from '../src/presets.js';
 import { ALGORITHMS, PRESETS } from '../src/dither.js';
 
 const SIZES = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 16, 20, 24];
 const sum = (m) => m.reduce((a, b) => a + b, 0);
 
-test('every look gives K binary s×s masks at every size', () => {
+test('every look gives K binary masks at every size: s×s, or (s + 2·off)² when they overlap', () => {
   for (const look of Object.keys(LOOKS)) {
     for (const s of SIZES) {
       const st = makeStamps(look, s);
       assert.equal(st.K, LOOKS[look].K);
       assert.equal(st.s, s);
+      assert.equal(st.off, LOOKS[look].spread ? s : 0, look);
       assert.equal(st.masks.length, st.K);
       for (const m of st.masks) {
         assert.ok(m instanceof Uint8Array);
-        assert.equal(m.length, s * s);
+        assert.equal(m.length, (s + 2 * st.off) ** 2);
         assert.ok(m.every((v) => v === 0 || v === 1));
       }
     }
@@ -162,4 +163,102 @@ test('presets only use values the app knows', () => {
       assert.deepEqual(s.colors, PRESETS[s.preset].colors);
     }
   }
+});
+
+// Ink inside the cell's own s×s square of an overlapping stamp.
+const own = (m, s) => { let a = 0; for (let y = s; y < 2 * s; y++) for (let x = s; x < 2 * s; x++) a += m[y * 3 * s + x]; return a; };
+
+test('diamondRadius inverts the diamond ink area, meeting at 50%', () => {
+  const area = (r) => (r <= 0.5 ? 2 * r * r : 1 - 2 * (1 - r) ** 2);
+  for (let i = 0; i <= 20; i++) assert.ok(Math.abs(area(diamondRadius(i / 20)) - i / 20) < 1e-9, i);
+  assert.equal(diamondRadius(1.5), 1);
+  assert.equal(diamondRadius(-1), 0);
+  assert.equal(diamondRadius(0), 0);
+  assert.equal(diamondRadius(0.5), 0.5);
+  assert.equal(diamondRadius(1), 1);
+});
+
+test('diamond: dot area follows the level, the darkest dots spill into neighbours', () => {
+  for (const s of [8, 12, 24]) {
+    const { masks, K } = makeStamps('diamond', s);
+    const c = masks.map(sum);
+    assert.equal(c[0], 0);
+    for (let k = 1; k < K; k++) assert.ok(c[k] >= c[k - 1], `s=${s}: ${c}`);
+    // Inside its own cell, each stamp covers about its share (pixel rounding aside).
+    for (let k = 0; k < K; k++) assert.ok(Math.abs(own(masks[k], s) / (s * s) - k / (K - 1)) < 4 / s, `s=${s} k=${k}`);
+    assert.equal(own(masks[K - 1], s), s * s, 'top level fills its cell');
+    assert.ok(c[K - 1] > s * s, 'and reaches past it');
+    // Symmetric both ways and across the diagonal.
+    const n = 3 * s, m = masks[9];
+    for (let y = 0; y < n; y++) for (let x = 0; x < n; x++) {
+      assert.equal(m[y * n + x], m[y * n + (n - 1 - x)]);
+      assert.equal(m[y * n + x], m[x * n + y]);
+    }
+  }
+});
+
+test('diamond: dot gain grows every dot, capped at what the stamp can hold', () => {
+  const s = 10, K = LOOKS.diamond.K;
+  const a = makeStamps('diamond', s).masks, b = makeStamps('diamond', s, { gain: 0.25 }).masks;
+  for (let k = 1; k < K; k++) assert.ok(sum(b[k]) > sum(a[k]), `k=${k}`);
+  assert.deepEqual(makeStamps('diamond', s, { gain: 9 }).masks, makeStamps('diamond', s, { gain: 0.5 }).masks);
+  assert.deepEqual(makeStamps('diamond', s, { gain: -1 }).masks, a);
+  // Full gain on the top level: a diamond 1.5 cells in radius, well into the next cells.
+  const top = makeStamps('diamond', s, { gain: 0.5 }).masks[K - 1], n = 3 * s;
+  assert.ok(Math.abs(sum(top) - 2 * (1.5 * s) ** 2) <= 8, sum(top));
+  assert.equal(top[(n / 2) * n + 2], 1);
+  assert.equal(top[0], 0);
+});
+
+test('maskSpans lists the runs of ones per row', () => {
+  const m = Uint8Array.from([1, 1, 0, 1, 0, 0, 0, 0, 0, 1, 1, 1, 0, 0, 0, 0]);
+  assert.deepEqual([...maskSpans(m, 4)], [0, 0, 2, 0, 3, 4, 2, 1, 4]);
+  assert.equal(maskSpans(new Uint8Array(9), 3).length, 0);
+});
+
+const asSpread = (L, s) => ({ spans: L.masks.map((m) => maskSpans(m, s + 2 * (L.off || 0))), off: L.off || 0, cov: L.cov, col: L.col });
+
+test('spreadFrame with cell-sized stamps matches stampFrame', () => {
+  const pal = [[0, 0, 0], [90, 90, 90], [170, 170, 170], [255, 255, 255]];
+  const w = 5, h = 4, idx = Uint8Array.from({ length: w * h }, (_, i) => (i * 7) % 4);
+  for (const look of ['led', 'halftone', 'ascii', 'scan']) for (const mode of ['mono', 'color']) {
+    const s = 8, L = makeLook(pal, s, { look, mode, bg: null });
+    const want = stampFrame(idx, w, h, s, L.masks, L.cov, L.col, L.bgIndex);
+    const got = spreadFrame(idx, w, h, s, [asSpread(L, s)], null, L.bgIndex, new Uint8Array(w * h * s * s), new Uint8Array(w * h * s * s));
+    assert.deepEqual(got, want, `${look} ${mode}`);
+  }
+});
+
+test('spreadFrame: a dark cell spills into light neighbours; bigger dots win, own cell breaks ties', () => {
+  const s = 8, w = 3, h = 3, W = w * s;
+  // Colour palette, so every cell keeps its own colour: 0 black (far from white bg), 1 grey.
+  const pal = [[0, 0, 0], [128, 128, 128]];
+  const L = makeLook(pal, s, { look: 'diamond', mode: 'color', bg: [255, 255, 255] });
+  const T = { spans: L.spans, off: L.off, cov: L.cov, col: L.col };
+  const out = new Uint8Array(W * W), pri = new Uint8Array(W * W);
+  const idx = Uint8Array.from([1, 1, 1, 1, 0, 1, 1, 1, 1]); // black centre in grey
+  spreadFrame(idx, w, h, s, [T], null, L.bgIndex, out, pri);
+  // Black fills its own cell and reaches into the grey cell next door, past where grey dots end.
+  for (let y = s; y < 2 * s; y++) for (let x = s; x < 2 * s; x++) assert.equal(out[y * W + x], 0);
+  assert.equal(out[(s + s / 2) * W + s - 2], 0, 'black over the left neighbour');
+  assert.equal(out[(s + s / 2) * W + 2 * s + 1], 0, 'black over the right neighbour');
+  // Grey cells still draw grey where they are not overlapped.
+  assert.equal(out[(s / 2) * W + s / 2], 1);
+  // Two equal dots: each owns its own side of the border.
+  const pal2 = [[0, 0, 0], [0, 0, 1]]; // same distance from white, different entries
+  const L2 = makeLook(pal2, s, { look: 'diamond', mode: 'color', bg: [255, 255, 255] });
+  const idx2 = Uint8Array.from([0, 1, 0, 1, 0, 1, 0, 1, 0]);
+  assert.equal(L2.cov[0], L2.cov[1]);
+  spreadFrame(idx2, w, h, s, [{ spans: L2.spans, off: L2.off, cov: L2.cov, col: L2.col }], null, L2.bgIndex, out, pri);
+  for (let i = 0; i < 9; i++) {
+    const cx = i % 3, cy = (i / 3) | 0;
+    for (let y = 0; y < s; y++) for (let x = 0; x < s; x++) assert.equal(out[(cy * s + y) * W + cx * s + x], idx2[i]);
+  }
+});
+
+test('lookLevels: tone looks use their own levels in mono only', () => {
+  assert.equal(lookLevels({ look: 'diamond', mode: 'mono', levels: 2 }), LOOKS.diamond.K);
+  assert.equal(lookLevels({ look: 'diamond', levels: 3 }), LOOKS.diamond.K);
+  assert.equal(lookLevels({ look: 'diamond', mode: 'color', levels: 3 }), 3);
+  assert.equal(lookLevels({ look: 'halftone', mode: 'mono', levels: 3 }), 3);
 });

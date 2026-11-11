@@ -6,7 +6,7 @@ import { PRESETS } from './dither.js';
 const base = {
   look: 'square', bg: null, mode: 'mono', algorithm: 'atkinson', levels: 2, chLevels: 2,
   ink: '#000000', paper: '#ffffff', strength: 1, invert: false,
-  brightness: 0, contrast: 0, gamma: 1, saturation: 0, threshold: 128, glow: 0, glowSize: 2, twinkle: 0,
+  brightness: 0, contrast: 0, gamma: 1, saturation: 0, threshold: 128, glow: 0, glowSize: 2, twinkle: 0, dotGain: 0,
 };
 const pal = (id) => ({ mode: 'color', preset: id, colors: [...PRESETS[id].colors] });
 const make = (id, name, settings) => ({ id, name, settings: { ...base, ...settings } });

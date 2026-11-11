@@ -1,11 +1,15 @@
 // Looks: how each dithered cell is drawn at export scale. Pure, no DOM.
 // A look is a set of K binary s×s stamps; a cell picks one by how far its colour is
 // from the background, so output stays exactly indexed (palette + one bg entry).
+// Overlapping looks (off > 0) have (s + 2·off)² stamps centred on their cell, so a dot can
+// reach into its neighbours; spreadFrame draws those.
 
 export const LOOKS = {
   square: { label: 'Pixels', K: 1 },
   led: { label: 'LED dots', K: 1 },
   halftone: { label: 'Halftone', K: 8 },
+  // tone: in mono the cells keep K grey levels (the dot size is the tone), whatever Levels says.
+  diamond: { label: 'Diamond halftone', K: 16, tone: true, spread: true },
   ascii: { label: 'ASCII', K: 10 },
   scan: { label: 'Scanlines', K: 1 },
 };
@@ -62,12 +66,52 @@ function glyph(s, rows) {
   return m;
 }
 
-export function makeStamps(look, s) {
+// Ink area of a diamond dot of L1 radius r (in cells) on a square grid is 2r² until the dots
+// meet at 50%; past that the paper left over is diamond holes, 1 − 2(1 − r)². Inverted here.
+export function diamondRadius(c) {
+  c = Math.max(0, Math.min(1, c));
+  return c <= 0.5 ? Math.sqrt(c / 2) : 1 - Math.sqrt((1 - c) / 2);
+}
+
+// Diamond dots on a (3s)² canvas centred on the cell. gain grows every dot (ink spread),
+// up to 50%, which is exactly what the canvas can hold. A plain distance threshold only
+// gives about s sizes (pixel centres sit at whole L1 distances), so dots grow pixel by
+// pixel instead: by L1 distance, then nearest the centre first, in symmetric groups,
+// stopping at the group boundary closest to the diamond's area.
+function diamonds(s, K, gain) {
+  const n = 3 * s, c = n / 2, g = 1 + Math.max(0, Math.min(0.5, +gain || 0));
+  const px = [];
+  for (let y = 0; y < n; y++) {
+    for (let x = 0; x < n; x++) {
+      const dx = Math.abs(x + 0.5 - c), dy = Math.abs(y + 0.5 - c);
+      px.push([dx + dy, dx * dx + dy * dy, y * n + x]);
+    }
+  }
+  px.sort((a, b) => a[0] - b[0] || a[1] - b[1]);
+  const ends = [0];
+  for (let i = 1; i <= px.length; i++) {
+    if (i === px.length || px[i][0] - px[i - 1][0] > 1e-9 || px[i][1] - px[i - 1][1] > 1e-9) ends.push(i);
+  }
+  return Array.from({ length: K }, (_, k) => {
+    const m = new Uint8Array(n * n);
+    const want = 2 * (diamondRadius(k / (K - 1)) * g * s) ** 2;
+    let e = 0;
+    for (const v of ends) if (Math.abs(v - want) < Math.abs(e - want)) e = v;
+    for (let i = 0; i < e; i++) m[px[i][2]] = 1;
+    return m;
+  });
+}
+
+// opts.gain: dot gain for overlapping looks (0–0.5).
+export function makeStamps(look, s, opts = {}) {
   s = Math.max(1, s | 0);
   if (!LOOKS[look]) look = 'square';
   const K = LOOKS[look].K;
-  let masks;
-  if (look === 'led') {
+  let masks, off = 0;
+  if (look === 'diamond') {
+    masks = diamonds(s, K, opts.gain);
+    off = s;
+  } else if (look === 'led') {
     masks = [s < 3 ? ones(s) : circle(s, s * 0.4)];
   } else if (look === 'halftone') {
     // Top level reaches the cell corners, so solid areas read as solid.
@@ -86,7 +130,7 @@ export function makeStamps(look, s) {
   } else {
     masks = [ones(s)];
   }
-  return { K, s, masks };
+  return { K, s, masks, off };
 }
 
 const toRgb = (c) => {
@@ -152,11 +196,61 @@ export function stampFrame(idx, w, h, s, masks, cov, col, bgIndex, out = new Uin
   return out;
 }
 
+// Runs of ones in an n×n mask, as [y, x0, x1, …] (x1 exclusive). Ships in the HTML player.
+export function maskSpans(m, n) {
+  const r = [];
+  for (let y = 0; y < n; y++) {
+    for (let x = 0; x < n;) {
+      if (!m[y * n + x]) { x++; continue; }
+      const x0 = x;
+      while (x < n && m[y * n + x]) x++;
+      r.push(y, x0, x);
+    }
+  }
+  return Int16Array.from(r);
+}
+
+// Overlapping stamps: each cell draws its dot, which may reach past its own cell. Where dots
+// meet, the bigger one wins and a cell wins ties on its own ground, so the output stays
+// indexed. looks[sel[i]] draws cell i (sel null: looks[0]); a look is { spans (per stamp,
+// from maskSpans), off (how far stamps reach past the cell, px), cov, col }. pri: W·H scratch.
+// Ships in the HTML player.
+export function spreadFrame(idx, w, h, s, looks, sel, bgIndex, out, pri) {
+  const W = w * s, H = h * s;
+  out.fill(bgIndex, 0, W * H);
+  pri.fill(0, 0, W * H);
+  for (let cy = 0; cy < h; cy++) {
+    for (let cx = 0; cx < w; cx++) {
+      const i = cy * w + cx, L = looks[sel ? sel[i] : 0], v = idx[i], k = L.cov[v], sp = L.spans[k];
+      if (!sp.length) continue;
+      const c = L.col[v], x0 = cx * s, y0 = cy * s, X0 = x0 - L.off, Y0 = y0 - L.off, p = 2 * k + 2;
+      for (let j = 0; j < sp.length; j += 3) {
+        const Y = Y0 + sp[j];
+        if (Y < 0 || Y >= H) continue;
+        const a = Math.max(0, X0 + sp[j + 1]), b = Math.min(W, X0 + sp[j + 2]), mine = Y >= y0 && Y < y0 + s, row = Y * W;
+        for (let X = a; X < b; X++) {
+          const q = row + X, pr = mine && X >= x0 && X < x0 + s ? p + 1 : p;
+          if (pr > pri[q]) { pri[q] = pr; out[q] = c; }
+        }
+      }
+    }
+  }
+  return out;
+}
+
 export function makeLook(pal, s, settings = {}) {
   const look = LOOKS[settings.look] ? settings.look : 'square';
-  const st = makeStamps(look, s);
+  const st = makeStamps(look, s, { gain: settings.dotGain });
   const bg = resolveBg(settings);
   const rule = (settings.mode || 'mono') === 'mono' && st.K > 1 ? 'ink' : 'cell';
   const { cov, col, bgIndex } = lookTables(pal, bg, st.K, rule);
-  return { s: st.s, K: st.K, masks: st.masks, cov, col, bgIndex, outPal: [...pal, bg], square: look === 'square' };
+  const L = { s: st.s, K: st.K, masks: st.masks, off: st.off, cov, col, bgIndex, outPal: [...pal, bg], square: look === 'square' };
+  if (st.off) L.spans = st.masks.map((m) => maskSpans(m, st.s + 2 * st.off));
+  return L;
+}
+
+// Tone looks keep K grey levels in mono, so the dot size carries the tone.
+export function lookLevels(settings = {}) {
+  const L = LOOKS[settings.look];
+  return L?.tone && (settings.mode || 'mono') === 'mono' ? L.K : settings.levels;
 }

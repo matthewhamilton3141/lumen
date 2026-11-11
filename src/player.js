@@ -4,6 +4,7 @@
 // several times on one page.
 import { glowFrame } from './glow.js';
 import { findTwinkles, drawTwinkles } from './twinkle.js';
+import { maskSpans, spreadFrame } from './looks.js';
 
 const RUNTIME = String.raw`
 (async()=>{
@@ -21,8 +22,14 @@ const mk=K=>{const m=un(K.m),bg=lut[lut.length-1],a=s*s;
   return lut.map((_,i)=>{const o=(K.cov[i]||0)*a,ink=lut[K.col[i]],r=[];
     for(let y=0;y<s;y++){const t=new Uint32Array(s);for(let x=0;x<s;x++){const k=o+y*s+x;t[x]=m[k>>3]>>(k&7)&1?ink:bg}r.push(t)}
     return r})};
-let rows,rowsL;
-if(L){lut.push(rgb(L.bg));rows=mk(L);if(M.lens)rowsL=mk(M.lens)}
+// Overlapping looks (o: how far stamps reach past the cell) are drawn whole by spreadFrame.
+const sp=L&&(L.o||M.lens&&M.lens.o);
+let rows,rowsL,SP;
+if(L){lut.push(rgb(L.bg));if(!sp){rows=mk(L);if(M.lens)rowsL=mk(M.lens)}}
+if(sp){const tb=K=>{const o=K.o||0,e=s+2*o,a=e*e,m=un(K.m),r=[];
+    for(let j=0;j<K.k;j++){const z=new Uint8Array(a);for(let i=0;i<a;i++){const b=j*a+i;z[i]=m[b>>3]>>(b&7)&1}r.push(maskSpans(z,e))}
+    return{spans:r,off:o,cov:K.cov,col:K.col}};
+  SP={ls:M.lens?[tb(L),tb(M.lens)]:[tb(L)],v:new Uint8Array(n),sel:M.lens?new Uint8Array(n):null,out:new Uint8Array(W*h*s),pri:new Uint8Array(W*h*s)}}
 const G=M.glow,T=M.tw,ws={};
 let f=-1,playing=!matchMedia('(prefers-reduced-motion:reduce)').matches,seen=true,last=0,acc=0,raf=0,drawn=0;
 const dt=1000/M.fps,Z=M.lens&&lensRT(M,c,w,h,s,kick);
@@ -31,9 +38,11 @@ function draw(){
   let bit=0;
   for(let i=0;i<n;i++){
     let v=0;for(let k=0;k<bits;k++,bit++)v|=(cur[bit>>3]>>(bit&7)&1)<<k;
-    if(L){const r=(Z&&Z.has(i)?rowsL:rows)[v],p=((i/w|0)*W+i%w)*s;for(let y=0;y<s;y++)u.set(r[y],p+y*W)}
+    if(SP){SP.v[i]=v;if(SP.sel)SP.sel[i]=Z.has(i)?1:0}
+    else if(L){const r=(Z&&Z.has(i)?rowsL:rows)[v],p=((i/w|0)*W+i%w)*s;for(let y=0;y<s;y++)u.set(r[y],p+y*W)}
     else u[i]=lut[v];
   }
+  if(SP){spreadFrame(SP.v,w,h,s,SP.ls,SP.sel,lut.length-1,SP.out,SP.pri);for(let q=0;q<SP.out.length;q++)u[q]=lut[SP.out[q]]}
   const tl=T&&findTwinkles(img.data,W,h*s,s,T.bg,T.t0+f/M.fps,T.a);
   if(G)glowFrame(img.data,W,h*s,G.bg,G.a,G.r,ws);
   if(tl)drawTwinkles(img.data,W,h*s,s,tl);
@@ -118,7 +127,8 @@ const strip = (fn) => fn.toString().replace(/^\s*\/\/.*$\n?/gm, '').replace(/^\s
 export const GLOW_SOURCE = strip(glowFrame);
 export const TWINKLE_SOURCE = `const findTwinkles=${strip(findTwinkles)};\nconst drawTwinkles=${strip(drawTwinkles)};`;
 export const LENS_SOURCE = `const lensRT=${strip(lensRT)};`;
-const runtime = (glow, tw, lens) => RUNTIME.replace('(async()=>{', () => `(async()=>{${glow ? `\nconst glowFrame=${GLOW_SOURCE};` : ''}${tw ? `\n${TWINKLE_SOURCE}` : ''}${lens ? `\n${LENS_SOURCE}` : ''}`);
+export const SPREAD_SOURCE = `const maskSpans=${strip(maskSpans)};\nconst spreadFrame=${strip(spreadFrame)};`;
+const runtime = (glow, tw, lens, spread) => RUNTIME.replace('(async()=>{', () => `(async()=>{${glow ? `\nconst glowFrame=${GLOW_SOURCE};` : ''}${tw ? `\n${TWINKLE_SOURCE}` : ''}${lens ? `\n${LENS_SOURCE}` : ''}${spread ? `\n${SPREAD_SOURCE}` : ''}`);
 
 // Stamp masks (each s*s of 0/1) → one bit-packed base64 string, and back.
 export function packMasks(masks) {
@@ -154,10 +164,12 @@ export function buildPlayer({
   if (glow) meta.glow = { a: glow.amount, r: glow.radius, bg: Array.from(glow.bg) };
   // Frame f shows source time t0 + f / fps, which drives the twinkles.
   if (twinkle) meta.tw = { a: twinkle.amount, bg: Array.from(twinkle.bg), t0: twinkle.t0 || 0 };
-  // lens: a second look over the same cells, { masks, cov, col, r (radius in cells), at? }.
+  // lens: a second look over the same cells, { masks, cov, col, off?, r (radius in cells), at? }.
+  // off (look and lens): how far an overlapping look's stamps reach past the cell, in px.
   if (lens && !look) throw new Error('A lens needs a stamped look.');
   if (lens) {
     meta.lens = { k: lens.masks.length, m: packMasks(lens.masks), cov: Array.from(lens.cov), col: Array.from(lens.col), r: lens.r };
+    if (lens.off) meta.lens.o = lens.off;
     if (lens.at) meta.lens.at = lens.at;
     meta.fit = embed === 'snippet' && !cover0(fit) ? 'contain' : fit;
   }
@@ -166,7 +178,9 @@ export function buildPlayer({
       s: look.s, k: look.masks.length, m: packMasks(look.masks),
       cov: Array.from(look.cov), col: Array.from(look.col), bg: Array.from(look.bg),
     };
+    if (look.off) meta.look.o = look.off;
   }
+  const spread = !!(look && (look.off || lens?.off));
   const s = look ? look.s : 1;
   const bg = `rgb(${(look ? look.bg : palette[palette.length - 1]).join(',')})`;
   const cover = fit === 'cover';
@@ -180,7 +194,7 @@ export function buildPlayer({
     `<canvas role="img" aria-label="${label}" style="${canvasStyle}"></canvas>
 <script type="application/json">${safeJson(meta)}</script>
 <script type="text/plain">${data}</script>
-<script>${runtime(glow, twinkle, lens)}</script>`;
+<script>${runtime(glow, twinkle, lens, spread)}</script>`;
 
   if (embed === 'snippet') {
     // Cover: fills the nearest positioned ancestor (give your hero `position: relative`).

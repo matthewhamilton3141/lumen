@@ -10,12 +10,12 @@ export const APP_DEFAULTS = {
   width: 320, scale: 4, fps: 24,
   format: 'mp4', audio: true, loop: true,
   look: 'square', bg: null, embed: 'page', embedFit: 'contain',
-  glow: 0, glowSize: 2, twinkle: 0,
+  glow: 0, glowSize: 2, twinkle: 0, dotGain: 0,
 };
 
 // Keys a look preset owns: applying one resets these to the defaults first, so nothing
 // from the previous look is left behind.
-export const LOOK_KEYS = ['look', 'bg', 'mode', 'ink', 'paper', 'levels', 'algorithm', 'invert', 'brightness', 'contrast', 'gamma', 'saturation', 'threshold', 'strength', 'chLevels', 'glow', 'glowSize', 'twinkle'];
+export const LOOK_KEYS = ['look', 'bg', 'mode', 'ink', 'paper', 'levels', 'algorithm', 'invert', 'brightness', 'contrast', 'gamma', 'saturation', 'threshold', 'strength', 'chLevels', 'glow', 'glowSize', 'twinkle', 'dotGain'];
 
 // The settings that make up "how it looks" (what Copy settings shares), without the
 // per-session ones like format or trim.
