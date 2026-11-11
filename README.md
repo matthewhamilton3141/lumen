@@ -105,3 +105,7 @@ Keys: space plays/pauses, `s` toggles the unprocessed source, `m` mutes, `i` / `
 - `src/preview.js`, `src/preview-worker.js`: the live preview and looks strip, drawn in a worker on transferred canvases (main-thread fallback). The page sends one frame at a time and skips frames while the worker is busy.
 - `src/pack.js`, `src/player.js`: HTML export format, player and embed snippet
 - `?test` exposes `window.__vd` for headless runs
+
+## License
+
+MIT. See [LICENSE](LICENSE).
