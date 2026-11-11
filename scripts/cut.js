@@ -35,7 +35,7 @@ const HELP = `Usage: npm run cut -- <input> [options]
       --aspect A         original | 16:9 | 9:16 | 1:1 | 4:5 | 4:3 | 21:9, with --fit crop|contain
       --at TIME          png: the frame to save (default: each clip's start)
       --embed snippet    html: an embed snippet instead of a page
-      --lens LOOK        html: a cursor lens that shows another look (square, led, halftone, ascii, scan)
+      --lens LOOK        html: a cursor lens that shows another look (square, led, halftone, diamond, ascii, scan)
                          over the same cells; it follows the pointer and drifts on its own
       --lens-size F      html: lens radius as a fraction of the shorter side, 0.05–0.6 (default 0.22)
       --once             gif / html: play once instead of looping

@@ -4,6 +4,9 @@ import { buildPlayer, packMasks, unpackMasks, RUNTIME_BYTES } from '../src/playe
 import { FramePacker, toBase64 } from '../src/pack.js';
 import { glowFrame } from '../src/glow.js';
 import { findTwinkles, drawTwinkles } from '../src/twinkle.js';
+import { makeRenderer } from '../src/render.js';
+import { htmlWriter } from '../src/encode.js';
+import { DEFAULTS } from '../src/dither.js';
 
 const W = 4, H = 3;
 const PAL = [[0, 0, 0], [255, 0, 0], [0, 255, 0], [255, 255, 255]];
@@ -284,4 +287,62 @@ test('non-looping playback stops on the last frame and restarts on click', async
   r.advance(0); r.advance(100);
   assert.equal(r.draws.length, 4);
   assert.deepEqual(r.draws[3], r.draws[0]);
+});
+
+// End to end: render a gradient, export it as HTML, and check the player draws the same pixels.
+function gradient(w, h) {
+  const a = new Uint8ClampedArray(w * h * 4);
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+    const i = (y * w + x) * 4, v = (x / (w - 1)) * 255;
+    a[i] = v; a[i + 1] = (y / (h - 1)) * 255; a[i + 2] = 255 - v; a[i + 3] = 255;
+  }
+  return a;
+}
+const rset = (o) => ({ ...DEFAULTS, ink: [0, 0, 0], paper: [255, 255, 255], bg: null, mode: 'mono', ...o });
+
+for (const [name, o] of [
+  ['mono', { look: 'diamond' }],
+  ['mono with dot gain', { look: 'diamond', dotGain: 0.3 }],
+  ['palette', { look: 'diamond', mode: 'color', colors: [[0, 0, 0], [255, 0, 0], [0, 0, 255], [255, 255, 255]] }],
+]) test(`runtime draws overlapping diamonds exactly like the renderer (${name})`, async () => {
+  const w = 10, h = 6, s = 6, ren = makeRenderer(w, h, s, rset(o));
+  const want = new Uint8ClampedArray(ren.W * ren.H * 4);
+  const hw = htmlWriter(ren, w, h);
+  hw.add(gradient(w, h));
+  ren.paint(want);
+  const html = await hw.finish({ fps: 1, title: 'D' });
+  assert.match(html, /const spreadFrame=function spreadFrame/);
+  const r = await run(html, { reduce: true });
+  assert.deepEqual(r.draws[0], want);
+});
+
+test('runtime ships the overlap code only for overlapping looks', async () => {
+  const w = 6, h = 4, ren = makeRenderer(w, h, 4, rset({ look: 'halftone' }));
+  const hw = htmlWriter(ren, w, h);
+  hw.add(gradient(w, h));
+  assert.doesNotMatch(await hw.finish({ fps: 1 }), /const spreadFrame=|const maskSpans=|"o":/);
+});
+
+test('lens: a diamond lens over halftone, and a halftone lens over diamonds', async () => {
+  const w = 16, h = 10, s = 6;
+  for (const [main, alt] of [['halftone', 'diamond'], ['diamond', 'halftone']]) {
+    const settings = rset({ look: main, mode: 'color', colors: [[0, 0, 0], [128, 128, 128], [255, 255, 255]] });
+    const lensOf = (look) => {
+      const ren = makeRenderer(w, h, s, settings);
+      const hw = htmlWriter(ren, w, h, 0, { lens: { look, size: 0.3, settings } });
+      hw.add(gradient(w, h));
+      return hw.finish({ fps: 1 });
+    };
+    const html = await lensOf(alt);
+    assert.match(html, /spreadFrame/);
+    const r = await run(html, { reduce: true });
+    // Far from the lens (top-left corner cell is outside it) the main look draws as without a lens.
+    const plain = makeRenderer(w, h, s, settings), want = new Uint8ClampedArray(plain.W * plain.H * 4);
+    plain.run(gradient(w, h));
+    plain.paint(want);
+    const W = w * s;
+    for (let y = 0; y < s; y++) for (let x = 0; x < s; x++) assert.deepEqual(px(r.draws[0], y * W + x), px(want, y * W + x), `${main}: ${x},${y}`);
+    // And the lens changes something near the middle.
+    assert.notDeepEqual(r.draws[0], want, `${main} with ${alt} lens`);
+  }
 });

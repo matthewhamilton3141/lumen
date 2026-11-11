@@ -16,7 +16,8 @@ Before a file is loaded the page runs a built-in demo animation, so the looks ca
 
 The strip under the preview shows every preset drawn live from the current frame; click one to apply it. There are five: Bayer (8×8 ordered dither in the source's colours), Pocket (four grey shades in a 4×4 Bayer pattern; recolour with Ink and Paper), Neon ASCII, LED wall and CRT. Presets reset the look, colour, dither and tone settings, then set their own.
 
-- **Shape:** Pixels (square dots, the classic dither), LED dots, Halftone (dot size follows tone), ASCII (a 10-step character ramp from a built-in bitmap font) and Scanlines.
+- **Shape:** Pixels (square dots, the classic dither), LED dots, Halftone (dot size follows tone), Diamond halftone, ASCII (a 10-step character ramp from a built-in bitmap font) and Scanlines.
+- **Diamond halftone:** print-style diamond dots, 16 sizes, that touch corner to corner at 50% grey and leave diamond holes past it. Dots overlap their neighbours, so dark areas merge into solid ink and edges stay clean; where two dots meet, the bigger one wins. In Mono the dot size is the tone, so it keeps 16 grey levels whatever Levels says. *Dot gain* (under More) grows every dot by up to 50%, like ink spreading on newsprint.
 - **Cell size:** pixels per cell in the export. For Pixels this is the export scale.
 - **Background:** the colour between dots or characters. Auto uses the paper colour in mono and black otherwise.
 - **Glow:** bloom on top of any look. Whatever differs from the background spreads light around it: on a dark background dots and characters glow, on a light one dark ink bleeds. *Glow size* (under More) is in cells, so the preview and every export match. The glowing presets are Neon ASCII, LED wall and CRT.
@@ -87,7 +88,7 @@ Keys: space plays/pauses, `s` toggles the unprocessed source, `m` mutes, `i` / `
 
 - `?edit` or **E** turns on a temporary text editor: drag the headline per piece, **A** cycles alignment, **+ / −** or the wheel resize, **Copy all positions** gives JSON to bake into `POSITIONS` in `site/template.html`.
 
-**Lens:** HTML exports can show a second look inside a circle that follows the pointer (drifting on its own when idle; a tap moves it on touch screens). From the CLI: `--lens ascii` (or `led`, `halftone`, `scan`, `square`) and `--lens-size 0.22` (fraction of the shorter side).
+**Lens:** HTML exports can show a second look inside a circle that follows the pointer (drifting on its own when idle; a tap moves it on touch screens). From the CLI: `--lens ascii` (or `led`, `halftone`, `diamond`, `scan`, `square`) and `--lens-size 0.22` (fraction of the shorter side).
 
 ## Layout
 

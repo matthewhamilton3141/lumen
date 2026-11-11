@@ -59,7 +59,7 @@ export function htmlWriter(ren, w, h, t0 = 0, opts = {}) {
   const lens = opts.lens && (() => {
     const alt = makeLook(ren.cellPal, ren.look.s, { ...(opts.lens.settings || {}), look: opts.lens.look, bg: ren.pal[ren.bgIndex] });
     const size = Math.max(0.05, Math.min(0.6, +opts.lens.size || 0.22));
-    return { masks: alt.masks, cov: alt.cov, col: alt.col, r: Math.max(2, Math.round(size * Math.min(w, h) * 10) / 10) };
+    return { masks: alt.masks, cov: alt.cov, col: alt.col, off: alt.off, r: Math.max(2, Math.round(size * Math.min(w, h) * 10) / 10) };
   })();
   const packer = new FramePacker(w, h, ren.cellPal.length);
   return {
@@ -71,7 +71,7 @@ export function htmlWriter(ren, w, h, t0 = 0, opts = {}) {
         w, h, fps: fps || 1, frames: packer.count, levels: ren.cellPal.length, bits: packer.bits,
         palette: ren.cellPal, loop, data, title, embed, fit,
         // Glow, twinkles and the lens need the canvas at full size, so square pixels are stamped too.
-        look: L.square && !ren.effects && !lens ? null : { s: L.s, masks: L.masks, cov: L.cov, col: L.col, bg: ren.pal[ren.bgIndex] },
+        look: L.square && !ren.effects && !lens ? null : { s: L.s, masks: L.masks, off: L.off, cov: L.cov, col: L.col, bg: ren.pal[ren.bgIndex] },
         glow: ren.glow, twinkle: ren.twinkle && { ...ren.twinkle, t0 }, lens,
       });
     },

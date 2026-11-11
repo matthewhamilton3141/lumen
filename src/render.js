@@ -1,13 +1,15 @@
 // Pure render pipeline (no DOM, no codecs): dither to cell indices, then stamp the
 // look at cell size. Shared by preview and every exporter; importable in Node.
 import { toLuma, dither, palette as makePalette, paint, toRGB, ditherColor } from './dither.js';
-import { makeLook, stampFrame, resolveBg } from './looks.js';
+import { makeLook, stampFrame, spreadFrame, lookLevels, resolveBg } from './looks.js';
 import { glowFrame, glowParams } from './glow.js';
 import { findTwinkles, drawTwinkles } from './twinkle.js';
 
 // One dither pass: RGBA in -> palette indices, then paint to RGBA.
-// settings.mode 'color' uses settings.colors ([[r,g,b]...]); otherwise ink→paper levels.
+// settings.mode 'color' uses settings.colors ([[r,g,b]...]); otherwise ink→paper levels
+// (as many as the look needs, for looks whose dot size is the tone).
 export function makeProcessor(w, h, settings) {
+  settings = { ...settings, levels: lookLevels(settings) };
   const idx = new Uint8Array(w * h);
   if (settings.mode === 'original') return originalProcessor(w, h, settings, idx);
   const color = settings.mode === 'color' && settings.colors?.length >= 2;
@@ -72,7 +74,7 @@ export function makeRenderer(w, h, s, settings) {
   const proc = makeProcessor(w, h, settings);
   const look = makeLook(proc.pal, s, settings);
   const W = w * s, H = h * s;
-  const big = new Uint8Array(W * H);
+  const big = new Uint8Array(W * H), pri = look.off ? new Uint8Array(W * H) : null;
   let out = big;
   // Square pixels have no background entry; glow against the auto background.
   const bg = look.square ? resolveBg({ ...settings, bg: null }) : look.outPal[look.bgIndex];
@@ -83,9 +85,9 @@ export function makeRenderer(w, h, s, settings) {
     W, H, pal: look.outPal, bgIndex: look.bgIndex, cellPal: proc.pal, look, cells: null, glow, twinkle, effects: !!(glow || twinkle),
     run(rgba) {
       const idx = this.cells = proc.run(rgba);
-      out = look.square
-        ? upscaleIdx(idx, w, h, s, big)
-        : stampFrame(idx, w, h, s, look.masks, look.cov, look.col, look.bgIndex, big);
+      out = look.square ? upscaleIdx(idx, w, h, s, big)
+        : look.off ? spreadFrame(idx, w, h, s, [look], null, look.bgIndex, big, pri)
+          : stampFrame(idx, w, h, s, look.masks, look.cov, look.col, look.bgIndex, big);
       return out;
     },
     paint(rgbaOut, t = 0) {

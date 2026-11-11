@@ -18,7 +18,7 @@ const MODES = {
   color: { mode: 'color', colors: [[0, 0, 0], [255, 0, 0], [0, 255, 0], [0, 0, 255], [255, 255, 255]] },
   original: { mode: 'original', chLevels: 3 },
 };
-const LOOKS = ['square', 'led', 'halftone', 'ascii', 'scan'];
+const LOOKS = ['square', 'led', 'halftone', 'diamond', 'ascii', 'scan'];
 const st = (mode, look, extra = {}) => ({ ...DEFAULTS, ink: [0, 0, 0], paper: [255, 255, 255], bg: null, ...MODES[mode], look, ...extra });
 
 for (const mode of Object.keys(MODES)) for (const look of LOOKS) for (const s of [1, 3, 8]) {
@@ -85,4 +85,21 @@ test('mono halftone paints solid ink only (ink rule)', () => {
 test('buffers are reused across frames', () => {
   const r = makeRenderer(W, H, 4, st('mono', 'led'));
   assert.equal(r.run(source()), r.run(source()));
+});
+
+test('mono diamond: dot size carries the tone, whatever Levels says', () => {
+  const r = makeRenderer(W, H, 8, st('mono', 'diamond', { levels: 2 }));
+  assert.equal(r.cellPal.length, 16);
+  assert.equal(makeProcessor(W, H, st('mono', 'diamond', { levels: 2 })).pal.length, 16);
+  const out = r.run(source());
+  // Ink only (no greys), and a ramp from dark to light shows a range of dot sizes.
+  assert.ok(out.every((v) => v === 0 || v === r.bgIndex));
+  const ink = (x0) => { let a = 0; for (let y = 0; y < r.H; y++) for (let x = x0; x < x0 + 8; x++) a += out[y * r.W + x] === 0; return a; };
+  const cols = [0, 3, 6, 9].map((c) => ink(c * 8));
+  assert.ok(new Set(cols).size >= 3, `dot sizes vary: ${cols}`);
+});
+
+test('diamond with dot gain prints darker', () => {
+  const ink = (gain) => makeRenderer(W, H, 8, st('mono', 'diamond', { dotGain: gain })).run(source()).reduce((a, v) => a + (v === 0), 0);
+  assert.ok(ink(0.3) > ink(0));
 });

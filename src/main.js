@@ -5,7 +5,7 @@ import { createPreview } from './preview.js';
 import { APP_DEFAULTS, LOOK_KEYS, SHARE_KEYS, hasEffects, withPreset as presetOn, roomForGlyphs as roomFor, toRender } from './settings.js';
 import { addClip, removeClip, setIn, setOut, clipTime, clipFileName, normalise, parseTime } from './clips.js';
 import { parseField, clampSnap } from './fields.js';
-import { LOOKS } from './looks.js';
+import { LOOKS, lookLevels } from './looks.js';
 import { LOOK_PRESETS } from './presets.js';
 
 const $ = (id) => document.getElementById(id);
@@ -75,8 +75,9 @@ const fmt = {
   glow: (v) => (v > 0 ? `${Math.round(v * 100)}%` : 'Off'),
   twinkle: (v) => (v > 0 ? `${Math.round(v * 100)}%` : 'Off'),
   glowSize: (v) => `${(+v).toFixed(1)} cells`,
+  dotGain: (v) => (v > 0 ? `+${Math.round(v * 100)}%` : 'Off'),
 };
-const ranges = ['levels', 'strength', 'brightness', 'contrast', 'saturation', 'gamma', 'threshold', 'width', 'scale', 'fps', 'count', 'chLevels', 'glow', 'glowSize', 'twinkle'];
+const ranges = ['levels', 'strength', 'brightness', 'contrast', 'saturation', 'gamma', 'threshold', 'width', 'scale', 'fps', 'count', 'chLevels', 'glow', 'glowSize', 'twinkle', 'dotGain'];
 const checks = ['serpentine', 'invert', 'audio', 'loop'];
 
 // force: rewrite the value field even while it's being edited (after Enter or a nudge).
@@ -94,7 +95,7 @@ function fill(el, force) {
 // Esc to cancel, ↑/↓ to nudge (Shift ×10). Double-click a slider or its label to reset.
 // The wheel nudges a slider only while it (or its value) has focus, so scrolling the
 // panel never changes settings by accident.
-const PERCENT = new Set(['strength', 'glow', 'twinkle']);
+const PERCENT = new Set(['strength', 'glow', 'twinkle', 'dotGain']);
 function setRange(el, v) {
   if (v === null || v === undefined) { fill(el, true); return; }
   if (+el.value !== v) {
@@ -185,6 +186,9 @@ function syncUI() {
   $('ink').value = S.ink; $('paper').value = S.paper;
   for (const k of segs) for (const b of $(k).children) b.setAttribute('aria-checked', b.dataset.v === S[k]);
   for (const el of document.querySelectorAll('[data-mode]')) el.hidden = !el.dataset.mode.split(' ').includes(S.mode);
+  // Diamond halftone: dot size is the tone, so it picks its own levels; dot gain is its own.
+  if (LOOKS[S.look].tone) $('levels-row').hidden = true;
+  $('dot-gain-row').hidden = !LOOKS[S.look].spread;
   aspectSel.value = S.aspect;
   $('fit-row').hidden = S.aspect === 'original';
   for (const el of document.querySelectorAll('[data-show="diffusion"]')) el.hidden = !DIFFUSION.has(S.algorithm);
@@ -328,7 +332,7 @@ function updateNotes() {
   };
   $('fmt-note').textContent = notes[S.format];
 }
-const palCount = () => (S.mode === 'color' ? S.colors.length : S.mode === 'original' ? S.chLevels ** 3 : S.levels) + (S.look === 'square' && !(fx()) ? 0 : 1);
+const palCount = () => (S.mode === 'color' ? S.colors.length : S.mode === 'original' ? S.chLevels ** 3 : lookLevels(S)) + (S.look === 'square' && !(fx()) ? 0 : 1);
 
 const conv = toRender;
 function settings() { return conv(S); }
