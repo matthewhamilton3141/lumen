@@ -3,7 +3,8 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>vid-dith</title>
+<title>Lumen</title>
+<link rel="icon" href="data:,">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
@@ -13,39 +14,146 @@
 <main class="app">
   <section class="stage" id="stage">
     <div class="view" id="view">
-      <canvas id="out" hidden></canvas>
+      <canvas id="out"></canvas>
       <video id="vid" loop playsinline preload="auto" hidden></video>
       <label class="drop" id="drop">
-        <input type="file" id="file" accept="video/*,.mov,.mp4,.webm,.mkv" hidden>
-        <span class="drop-main">Drop a video here</span>
-        <span class="drop-sub">or click to choose a file</span>
+        <input type="file" id="file" accept="video/*,image/*,.mov,.mp4,.webm,.mkv" hidden>
+        <span class="drop-box">
+          <span class="drop-main">Drop a video or image here</span>
+          <span class="drop-sub">or click to choose a file</span>
+        </span>
       </label>
     </div>
     <div class="transport" id="transport" hidden>
-      <button class="icon" id="play" aria-label="Play">
+      <button class="icon" id="play" aria-label="Play" title="Play / pause (Space)" data-video>
         <svg viewBox="0 0 16 16" id="play-icon"><path d="M4 2.5v11l9-5.5z"/></svg>
       </button>
-      <input type="range" id="seek" min="0" max="1000" value="0" step="1" aria-label="Seek">
-      <span class="time" id="time">0:00 / 0:00</span>
-      <button class="icon" id="mute" aria-label="Mute" aria-pressed="false">
+      <div class="timeline" data-video>
+        <div class="tl-marks" id="tl-marks" aria-hidden="true"></div>
+        <input type="range" id="seek" min="0" max="1000" value="0" step="1" aria-label="Seek">
+      </div>
+      <span class="time" id="time" data-video>0:00 / 0:00</span>
+      <button class="icon" id="mute" aria-label="Mute" title="Sound (M)" aria-pressed="false">
         <svg viewBox="0 0 16 16" id="mute-icon"></svg>
       </button>
-      <button class="text" id="orig" aria-pressed="false">Source</button>
-      <button class="text" id="swap-file">Change video</button>
+      <span class="spacer"></span>
+      <button class="text" id="orig" aria-pressed="false" title="Show the source (S)">Source</button>
+      <button class="text" id="swap-file">Change file</button>
     </div>
+    <div class="looks" id="looks" role="group" aria-label="Looks"></div>
   </section>
 
   <aside class="panel">
     <div class="panel-top">
-      <span class="meta" id="meta">No video</span>
+      <span class="meta" id="meta">Demo</span>
       <button class="text" id="theme" aria-label="Toggle theme">Dark</button>
     </div>
 
-    <fieldset>
-      <legend>Dither</legend>
-      <label class="row">Algorithm
+    <section class="group">
+      <label class="row">Shape
+        <select id="look"></select>
+      </label>
+      <label class="row">Dither
         <select id="algorithm"></select>
       </label>
+      <label class="row slider"><span id="width-label">Detail</span> <output data-for="width"></output>
+        <input type="range" id="width" min="32" max="1280" step="2">
+      </label>
+      <label class="row slider">Contrast <output data-for="contrast"></output>
+        <input type="range" id="contrast" min="-100" max="100" step="1">
+      </label>
+      <label class="row slider">Glow <output data-for="glow"></output>
+        <input type="range" id="glow" min="0" max="1" step="0.01">
+      </label>
+      <label class="row slider">Twinkle <output data-for="twinkle"></output>
+        <input type="range" id="twinkle" min="0" max="1" step="0.01">
+      </label>
+    </section>
+
+    <section class="group">
+      <div class="seg three" role="radiogroup" id="mode">
+        <button role="radio" data-v="mono">Mono</button>
+        <button role="radio" data-v="color">Palette</button>
+        <button role="radio" data-v="original">Original</button>
+      </div>
+      <div class="colors" data-mode="mono">
+        <label class="swatch">Ink <input type="color" id="ink"></label>
+        <label class="swatch">Paper <input type="color" id="paper"></label>
+        <button class="text" id="swap-colors">Swap</button>
+        <button class="text" id="reset-colors">Reset</button>
+      </div>
+      <label class="row" data-mode="color">Palette
+        <select id="preset"></select>
+      </label>
+    </section>
+
+    <section class="group" id="clips-group" hidden>
+      <div class="trim">
+        <label>In <input type="text" id="t0" inputmode="decimal" spellcheck="false" autocomplete="off" value="0:00.000" title="m:ss.mmm or seconds. ↑/↓ one frame, Shift 1 s."></label>
+        <button class="text" id="set-t0" title="Set In to the playhead (I)">Set</button>
+        <label>Out <input type="text" id="t1" inputmode="decimal" spellcheck="false" autocomplete="off" value="0:00.000" title="m:ss.mmm or seconds. ↑/↓ one frame, Shift 1 s."></label>
+        <button class="text" id="set-t1" title="Set Out to the playhead (O)">Set</button>
+      </div>
+      <button class="secondary" id="add-clip" title="Add In → Out to the clips (A)">Add clip</button>
+      <ol class="clips" id="clips" aria-label="Clips"></ol>
+      <p class="note" id="clips-note"></p>
+      <button class="secondary" id="copy-cmd" title="Copy an npm run cut command with these clips and settings">Copy as command</button>
+    </section>
+
+    <section class="group">
+      <div class="seg five" role="radiogroup" id="format">
+        <button role="radio" data-v="mp4">MP4</button>
+        <button role="radio" data-v="mov">MOV</button>
+        <button role="radio" data-v="gif">GIF</button>
+        <button role="radio" data-v="png">PNG</button>
+        <button role="radio" data-v="html">HTML</button>
+      </div>
+      <div class="seg two" role="radiogroup" id="embed" data-fmt="html">
+        <button role="radio" data-v="page">Page</button>
+        <button role="radio" data-v="snippet">Embed snippet</button>
+      </div>
+      <button class="primary" id="export" disabled>Export</button>
+      <div class="progress" id="progress" hidden>
+        <div class="bar"><div id="bar"></div></div>
+        <span id="pct">0%</span>
+        <button class="text" id="cancel">Cancel</button>
+      </div>
+      <p class="note" id="status" role="status"></p>
+      <button class="secondary" id="copy" hidden>Copy snippet</button>
+    </section>
+
+    <details class="group" data-g="more">
+      <summary>More</summary>
+
+      <label class="row slider"><span id="scale-label">Export scale</span> <output data-for="scale"></output>
+        <input type="range" id="scale" min="1" max="16" step="1">
+      </label>
+      <label class="row slider" id="glow-size-row">Glow size <output data-for="glowSize"></output>
+        <input type="range" id="glowSize" min="0.5" max="6" step="0.5">
+      </label>
+      <div class="colors" id="bg-row">
+        <label class="swatch">Background <input type="color" id="bg"></label>
+        <button class="text" id="bg-auto" aria-pressed="true">Auto</button>
+      </div>
+
+      <div data-mode="original">
+        <label class="row slider">Levels per channel <output data-for="chLevels"></output>
+          <input type="range" id="chLevels" min="2" max="6" step="1">
+        </label>
+      </div>
+      <div data-mode="color">
+        <div class="swatches" id="swatches"></div>
+        <div class="palette-actions">
+          <button class="text" id="add-color">Add</button>
+          <button class="text" id="remove-color">Remove</button>
+          <button class="text" id="sort-colors">Sort</button>
+        </div>
+        <label class="row slider">Colours from source <output data-for="count"></output>
+          <input type="range" id="count" min="2" max="16" step="1">
+        </label>
+        <button class="secondary" id="from-video" disabled>Pick colours from source</button>
+      </div>
+
       <label class="row slider" data-mode="mono">Levels <output data-for="levels"></output>
         <input type="range" id="levels" min="2" max="8" step="1">
       </label>
@@ -53,15 +161,9 @@
         <input type="range" id="strength" min="0" max="1" step="0.01">
       </label>
       <label class="check" data-show="diffusion"><input type="checkbox" id="serpentine"> Serpentine scan</label>
-    </fieldset>
 
-    <fieldset>
-      <legend>Tone</legend>
       <label class="row slider">Brightness <output data-for="brightness"></output>
         <input type="range" id="brightness" min="-100" max="100" step="1">
-      </label>
-      <label class="row slider">Contrast <output data-for="contrast"></output>
-        <input type="range" id="contrast" min="-100" max="100" step="1">
       </label>
       <label class="row slider">Gamma <output data-for="gamma"></output>
         <input type="range" id="gamma" min="0.2" max="3" step="0.01">
@@ -73,46 +175,7 @@
         <input type="range" id="threshold" min="0" max="255" step="1">
       </label>
       <label class="check"><input type="checkbox" id="invert"> Invert</label>
-    </fieldset>
 
-    <fieldset>
-      <legend>Colour</legend>
-      <div class="seg three" role="radiogroup" id="mode">
-        <button role="radio" data-v="mono">Mono</button>
-        <button role="radio" data-v="color">Palette</button>
-        <button role="radio" data-v="original">Original</button>
-      </div>
-      <div data-mode="original">
-        <label class="row slider">Levels per channel <output data-for="chLevels"></output>
-          <input type="range" id="chLevels" min="2" max="6" step="1">
-        </label>
-        <p class="note">Each of red, green and blue is dithered on its own, so the video keeps its own colours.</p>
-      </div>
-      <div class="colors" data-mode="mono">
-        <label class="swatch">Ink <input type="color" id="ink"></label>
-        <label class="swatch">Paper <input type="color" id="paper"></label>
-        <button class="text" id="swap-colors">Swap</button>
-        <button class="text" id="reset-colors">Reset</button>
-      </div>
-      <div data-mode="color">
-        <label class="row">Palette
-          <select id="preset"></select>
-        </label>
-        <div class="swatches" id="swatches"></div>
-        <div class="palette-actions">
-          <button class="text" id="add-color">Add</button>
-          <button class="text" id="remove-color">Remove</button>
-          <button class="text" id="sort-colors">Sort</button>
-        </div>
-        <label class="row slider">Colours from video <output data-for="count"></output>
-          <input type="range" id="count" min="2" max="16" step="1">
-        </label>
-        <button class="secondary" id="from-video" disabled>Pick colours from video</button>
-      </div>
-    </fieldset>
-
-    <fieldset>
-      <legend>Size</legend>
       <label class="row">Frame
         <select id="aspect"></select>
       </label>
@@ -122,47 +185,22 @@
           <button role="radio" data-v="contain">Fit with bars</button>
         </div>
       </div>
-      <label class="row slider">Dots on long side <output data-for="width"></output>
-        <input type="range" id="width" min="32" max="1280" step="2">
-      </label>
-      <label class="row slider">Export scale <output data-for="scale"></output>
-        <input type="range" id="scale" min="1" max="12" step="1">
-      </label>
       <p class="note" id="size-note"></p>
-    </fieldset>
 
-    <fieldset>
-      <legend>Time</legend>
-      <label class="row slider">Frame rate <output data-for="fps"></output>
-        <input type="range" id="fps" min="1" max="60" step="1">
-      </label>
-      <div class="trim">
-        <label>Start <input type="number" id="t0" min="0" step="0.1" value="0"></label>
-        <button class="text" id="set-t0" title="Set start to playhead">Set</button>
-        <label>End <input type="number" id="t1" min="0" step="0.1" value="0"></label>
-        <button class="text" id="set-t1" title="Set end to playhead">Set</button>
+      <div id="time-group">
+        <label class="row slider">Frame rate <output data-for="fps"></output>
+          <input type="range" id="fps" min="1" max="60" step="1">
+        </label>
       </div>
-    </fieldset>
 
-    <fieldset>
-      <legend>Export</legend>
-      <div class="seg" role="radiogroup" id="format">
-        <button role="radio" data-v="mp4">MP4</button>
-        <button role="radio" data-v="mov">MOV</button>
-        <button role="radio" data-v="gif">GIF</button>
-        <button role="radio" data-v="html">HTML</button>
+      <div class="seg two" role="radiogroup" id="embedFit" data-fmt="html">
+        <button role="radio" data-v="contain">Fit: contain</button>
+        <button role="radio" data-v="cover">Fit: cover</button>
       </div>
       <label class="check" data-fmt="mp4 mov"><input type="checkbox" id="audio"> Keep audio</label>
-      <label class="check" data-fmt="html gif"><input type="checkbox" id="loop"> Loop</label>
+      <label class="check" data-fmt="html gif" data-video><input type="checkbox" id="loop"> Loop</label>
       <p class="note" id="fmt-note"></p>
-      <button class="primary" id="export" disabled>Export</button>
-      <div class="progress" id="progress" hidden>
-        <div class="bar"><div id="bar"></div></div>
-        <span id="pct">0%</span>
-        <button class="text" id="cancel">Cancel</button>
-      </div>
-      <p class="note" id="status" role="status"></p>
-    </fieldset>
+    </details>
   </aside>
 </main>
 <script type="module" src="/src/main.js"></script>

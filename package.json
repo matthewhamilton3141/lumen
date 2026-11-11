@@ -1,5 +1,5 @@
 {
-  "name": "vid-dith",
+  "name": "lumen",
   "private": true,
   "version": "0.1.0",
   "type": "module",
@@ -7,7 +7,9 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
-    "test": "node --test test/*.test.js"
+    "test": "node --test test/*.test.js",
+    "cut": "node scripts/cut.js",
+    "site": "node site/build.mjs"
   },
   "dependencies": {
     "gifenc": "1.0.3",

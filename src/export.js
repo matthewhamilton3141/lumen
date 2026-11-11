@@ -2,14 +2,19 @@ import {
   Input, ALL_FORMATS, BlobSource, CanvasSink, Output, Mp4OutputFormat, MovOutputFormat,
   BufferTarget, Conversion, QUALITY_VERY_HIGH,
 } from 'mediabunny';
-import { GIFEncoder, quantize } from 'gifenc';
-import { toLuma, dither, palette as makePalette, paint, toRGB, ditherColor, sortByLuma } from './dither.js';
-import { FramePacker, toBase64 } from './pack.js';
-import { buildPlayer } from './player.js';
+import { toRGB, sortByLuma } from './dither.js';
+import { makeProcessor, makeRenderer } from './render.js';
+import { isImage, decodeImage, drawFramed } from './source.js';
+import { gifWriter, htmlWriter, quantize } from './encode.js';
 import { framing } from './frame.js';
 export { framing, ASPECTS } from './frame.js';
+export { makeProcessor, makeRenderer };
 
 export async function probe(file) {
+  if (isImage(file)) {
+    const bmp = await decodeImage(file);
+    return { kind: 'image', width: bmp.width, height: bmp.height, rotation: 0, duration: 0, start: 0, fps: 0, hasAudio: false };
+  }
   const input = new Input({ source: new BlobSource(file), formats: ALL_FORMATS });
   const track = await input.getPrimaryVideoTrack();
   if (!track) throw new Error('No video track found in this file.');
@@ -17,53 +22,9 @@ export async function probe(file) {
     input.computeDuration(), track.computePacketStats(120), track.getFirstTimestamp(),
   ]);
   return {
-    width: track.displayWidth, height: track.displayHeight, rotation: track.rotation, duration, start,
+    kind: 'video', width: track.displayWidth, height: track.displayHeight, rotation: track.rotation, duration, start,
     fps: Math.round(stats.averagePacketRate * 100) / 100 || 30,
     hasAudio: !!(await input.getPrimaryAudioTrack()),
-  };
-}
-
-// One dither pass: RGBA in -> palette indices, then paint to RGBA.
-// settings.mode 'color' uses settings.colors ([[r,g,b]...]); otherwise ink→paper levels.
-export function makeProcessor(w, h, settings) {
-  const idx = new Uint8Array(w * h);
-  if (settings.mode === 'original') return originalProcessor(w, h, settings, idx);
-  const color = settings.mode === 'color' && settings.colors?.length >= 2;
-  const pal = color ? settings.colors : makePalette(settings.levels, settings.ink, settings.paper);
-  const buf = new Float32Array(w * h * (color ? 3 : 1));
-  return {
-    pal,
-    run(rgba) {
-      if (color) ditherColor(toRGB(rgba, w, h, settings, buf), w, h, settings, pal, idx);
-      else dither(toLuma(rgba, w, h, settings, buf), w, h, settings, idx);
-      return idx;
-    },
-    paint(rgbaOut) { return paint(idx, pal, rgbaOut); },
-  };
-}
-
-// "Original colours": dither R, G and B independently with L levels each, so the
-// output keeps the source's own colours. Palette is the L³ grid (≤ 216 for GIF).
-function originalProcessor(w, h, settings, idx) {
-  const L = Math.max(2, Math.min(6, settings.chLevels | 0 || 2));
-  const pal = [];
-  for (let r = 0; r < L; r++) for (let g = 0; g < L; g++) for (let b = 0; b < L; b++)
-    pal.push([r, g, b].map((v) => Math.round((v * 255) / (L - 1))));
-  const n = w * h;
-  const rgb = new Float32Array(n * 3);
-  const ch = [0, 1, 2].map(() => new Float32Array(n));
-  const q = [0, 1, 2].map(() => new Uint8Array(n));
-  const opts = { ...settings, levels: L };
-  return {
-    pal,
-    run(rgba) {
-      toRGB(rgba, w, h, settings, rgb);
-      for (let i = 0; i < n; i++) { ch[0][i] = rgb[i * 3]; ch[1][i] = rgb[i * 3 + 1]; ch[2][i] = rgb[i * 3 + 2]; }
-      for (let c = 0; c < 3; c++) dither(ch[c], w, h, opts, q[c]);
-      for (let i = 0; i < n; i++) idx[i] = (q[0][i] * L + q[1][i]) * L + q[2][i];
-      return idx;
-    },
-    paint(rgbaOut) { return paint(idx, pal, rgbaOut); },
   };
 }
 
@@ -71,8 +32,8 @@ function originalProcessor(w, h, settings, idx) {
 export async function paletteFromVideo(file, info, settings, count, trim, frame) {
   const f0 = framing(info, { ...frame, long: 96 });
   const { w, h } = f0;
-  const span = trim.end - trim.start;
-  const samples = 12;
+  const span = Math.max(1e-3, trim.end - trim.start);
+  const samples = isImage(file) ? 1 : 12;
   const all = new Uint8ClampedArray(w * h * 4 * samples);
   let n = 0;
   for await (const f of frames(file, f0, samples / span, trim)) {
@@ -90,13 +51,13 @@ const canvas = (w, h) => {
 
 // MP4 / MOV through Mediabunny's conversion pipeline, so audio comes along.
 export async function exportVideo({ file, format, settings, frame, scale, fps, trim, audio = true, onProgress, onConversion }) {
+  if (isImage(file)) throw new Error('MP4 and MOV need a video. Export a still image as PNG, GIF or HTML.');
   const { w, h } = frame;
   const W = w * scale, H = h * scale;
   const [small, sctx] = canvas(w, h);
   const [big, bctx] = canvas(W, H);
-  bctx.imageSmoothingEnabled = false;
-  const proc = makeProcessor(w, h, settings);
-  const img = sctx.createImageData(w, h);
+  const ren = makeRenderer(w, h, scale, settings);
+  const img = bctx.createImageData(W, H);
 
   const input = new Input({ source: new BlobSource(file), formats: ALL_FORMATS });
   const output = new Output({
@@ -116,10 +77,10 @@ export async function exportVideo({ file, format, settings, frame, scale, fps, t
       process(sample) {
         sctx.clearRect(0, 0, w, h);
         sample.draw(sctx, 0, 0, w, h);
-        proc.run(sctx.getImageData(0, 0, w, h).data);
-        proc.paint(img.data);
-        sctx.putImageData(img, 0, 0);
-        bctx.drawImage(small, 0, 0, W, H);
+        ren.run(sctx.getImageData(0, 0, w, h).data);
+        // Output timestamps start at 0; twinkles follow source time.
+        ren.paint(img.data, sample.timestamp + (trim?.start || 0));
+        bctx.putImageData(img, 0, 0);
         return big;
       },
     },
@@ -138,6 +99,13 @@ export async function exportVideo({ file, format, settings, frame, scale, fps, t
 // Decoded frames at a fixed rate, resized to w×h.
 export async function* frames(file, frame, fps, trim, signal) {
   const { w, h } = frame;
+  if (isImage(file)) {
+    const [, ictx] = canvas(w, h);
+    drawFramed(ictx, await decodeImage(file), frame);
+    if (signal?.aborted) throw new DOMException('Canceled', 'AbortError');
+    yield { rgba: ictx.getImageData(0, 0, w, h).data, i: 0, n: 1, t: 0 };
+    return;
+  }
   const input = new Input({ source: new BlobSource(file), formats: ALL_FORMATS });
   const track = await input.getPrimaryVideoTrack();
   const sink = new CanvasSink(track, { width: w, height: h, fit: frame.fit, ...(frame.crop && { crop: frame.crop }), poolSize: 2 });
@@ -148,53 +116,52 @@ export async function* frames(file, frame, fps, trim, signal) {
   for await (const wc of sink.canvasesAtTimestamps(ts)) {
     if (signal?.aborted) throw new DOMException('Canceled', 'AbortError');
     if (wc) { ctx.fillStyle = '#000'; ctx.fillRect(0, 0, w, h); ctx.drawImage(wc.canvas, 0, 0); }
-    yield { rgba: ctx.getImageData(0, 0, w, h).data, i: i++, n };
+    yield { rgba: ctx.getImageData(0, 0, w, h).data, i, n, t: ts[i++] };
   }
 }
 
-function upscaleIdx(idx, w, h, s, out) {
-  if (s === 1) return idx;
-  const W = w * s;
-  for (let y = 0; y < h; y++) {
-    const row = out.subarray(y * s * W, y * s * W + W);
-    for (let x = 0; x < w; x++) row.fill(idx[y * w + x], x * s, x * s + s);
-    for (let k = 1; k < s; k++) out.copyWithin((y * s + k) * W, y * s * W, y * s * W + W);
-  }
-  return out;
-}
-
-export async function exportGif({ file, settings, frame, scale, fps, trim, onProgress, signal }) {
+export async function exportGif({ file, settings, frame, scale, fps, trim, loop = true, onProgress, signal }) {
   const { w, h } = frame;
-  const proc = makeProcessor(w, h, settings);
-  const gif = GIFEncoder();
-  const big = new Uint8Array(w * scale * h * scale);
-  const delay = 1000 / fps;
-  let t = 0;
+  const gif = gifWriter(makeRenderer(w, h, scale, settings), fps);
   for await (const f of frames(file, frame, fps, trim, signal)) {
-    const idx = proc.run(f.rgba);
-    // GIF delays are whole centiseconds; carry the remainder so long clips stay in sync.
-    const d = Math.round((t + delay) / 10) * 10 - Math.round(t / 10) * 10;
-    t += delay;
-    gif.writeFrame(upscaleIdx(idx, w, h, scale, big), w * scale, h * scale, { palette: proc.pal, delay: d });
+    gif.add(f.rgba, f.t);
     onProgress?.((f.i + 1) / f.n);
   }
-  gif.finish();
-  return new Blob([gif.bytes()], { type: 'image/gif' });
+  return new Blob([gif.finish({ loop })], { type: 'image/gif' });
 }
 
-export async function exportHtml({ file, settings, frame, fps, trim, loop = true, title, onProgress, signal }) {
+export async function exportHtml({ file, settings, frame, scale = 1, fps, trim, loop = true, title, embed = 'page', fit = 'contain', onProgress, signal }) {
   const { w, h } = frame;
-  const proc = makeProcessor(w, h, settings);
-  const packer = new FramePacker(w, h, proc.pal.length);
+  const page = htmlWriter(makeRenderer(w, h, scale, settings), w, h, isImage(file) ? 0 : trim.start + 0.5 / (fps || 1));
   for await (const f of frames(file, frame, fps, trim, signal)) {
-    packer.add(proc.run(f.rgba));
+    page.add(f.rgba);
     onProgress?.(((f.i + 1) / f.n) * 0.95);
   }
-  const data = toBase64(await packer.compress());
+  const html = await page.finish({ fps, loop, title, embed, fit });
   onProgress?.(1);
-  const html = buildPlayer({
-    w, h, fps, frames: packer.count, levels: proc.pal.length, bits: packer.bits,
-    palette: proc.pal, loop, data, title,
-  });
   return new Blob([html], { type: 'text/html' });
+}
+
+// One frame as a PNG: the frame at `time` seconds (clamped into the clip), or the image itself.
+export async function exportPng({ file, settings, frame, scale = 1, time = 0 }) {
+  const { w, h } = frame;
+  let trim = { start: 0, end: 0 }, fps = 1;
+  if (!isImage(file)) {
+    const info = await probe(file);
+    const step = 1 / (info.fps || 30);
+    const t = Math.min(Math.max(time, info.start), Math.max(info.start, info.start + info.duration - step));
+    // frames() samples at start + 0.5/fps, so this lands exactly on t.
+    fps = 1 / step;
+    trim = { start: t - step / 2, end: t + step / 2 };
+  }
+  const ren = makeRenderer(w, h, scale, settings);
+  const [big, bctx] = canvas(ren.W, ren.H);
+  const img = bctx.createImageData(ren.W, ren.H);
+  for await (const f of frames(file, frame, fps, trim)) {
+    ren.run(f.rgba);
+    ren.paint(img.data, f.t);
+    bctx.putImageData(img, 0, 0);
+    break;
+  }
+  return big.convertToBlob({ type: 'image/png' });
 }
