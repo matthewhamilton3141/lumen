@@ -9,6 +9,9 @@ import { LOOKS } from './looks.js';
 import { LOOK_PRESETS } from './presets.js';
 
 const $ = (id) => document.getElementById(id);
+// Clean address: /lumen/index.html → /lumen/ (keeps any ?query and #hash).
+if (location.pathname.endsWith('/index.html')) history.replaceState(null, '', location.pathname.slice(0, -10) + location.search + location.hash);
+
 // Decoding and encoding (Mediabunny, gifenc) load on first use, so the page and the
 // demo start from a small bundle. Fetched when the browser is idle after start-up.
 let exportMod = null;

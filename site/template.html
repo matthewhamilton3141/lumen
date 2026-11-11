@@ -146,7 +146,7 @@
 
   <header class="top">
     <a class="mark" href="./">Lumen</a>
-    <a class="open" href="/">Open the app</a>
+    <a class="open" href="../">Open the app</a>
   </header>
 
   <section class="bottom" aria-label="Now showing">
@@ -155,7 +155,7 @@
     <nav class="index" aria-label="Works">
       <ul class="works" id="works"></ul>
       <ul class="looks" id="looks"></ul>
-      <p class="hint">Arrow keys to browse. Click the image to pause.</p>
+      <p class="hint">Arrow keys to browse.</p>
     </nav>
   </section>
 
@@ -170,6 +170,8 @@
 <div class="cursor" id="cursor" aria-hidden="true"><div class="ring"></div><div class="dot"></div></div>
 
 <script>
+// Clean address: /site/index.html → /site/ (keeps any ?query and #hash).
+if (location.pathname.endsWith('/index.html')) history.replaceState(null, '', location.pathname.slice(0, -10) + location.search + location.hash);
 const WORKS = /*works*/[];
 const LOOKS = /*looks*/{};
 // Headline placement per piece, baked in from the editor's "Copy all positions".
@@ -328,6 +330,10 @@ addEventListener('hashchange', () => { fromHash(); show(false); });
   document.addEventListener('pointerleave', () => root.classList.remove('has-cursor'));
   addEventListener('blur', () => root.classList.remove('has-cursor'));
 }
+
+// The page plays continuously: catch clicks on the stage before they reach the players,
+// which otherwise pause on click.
+$('stage').addEventListener('click', (e) => e.stopPropagation(), true);
 
 fromHash();
 show(true);
